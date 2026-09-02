@@ -1,0 +1,29 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environment files (keep .env.example)
+.env
+.env.*
+!.env.example
+!.env.dev
+
+# Logs
+*.log
+
+# Tableau data files
+Competition Analysis- To send.twbx
+twbx_extracted/
