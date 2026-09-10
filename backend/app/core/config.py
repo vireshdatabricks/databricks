@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Application
-    app_name: str = "CMS Analytics"
+    app_name: str = "Case Insight"
     app_version: str = "1.0.0"
     environment: str = "development"
     log_level: str = "INFO"

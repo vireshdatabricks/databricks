@@ -28,8 +28,8 @@ RUN --mount=type=secret,id=jf-user \
 
 WORKDIR /app
 
-# Gateway prefix baked at build time; empty locally, /pbmcms in deployed builds.
-ARG NEXT_PUBLIC_BASE_PATH=/pbmcms
+# Gateway prefix baked at build time; empty locally, /pbmcaseinsight in deployed builds.
+ARG NEXT_PUBLIC_BASE_PATH=/pbmcaseinsight
 ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
 ENV NEXT_IGNORE_INCORRECT_LOCKFILE=1
 

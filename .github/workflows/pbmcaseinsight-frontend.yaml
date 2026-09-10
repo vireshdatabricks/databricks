@@ -1,0 +1,113 @@
+name: Deploy PBM Case Insight Frontend
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/pbmcaseinsight-frontend.yaml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/pbmcaseinsight-frontend.yaml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  REGISTRY_NAME: pbmaipocsnonprodcusacr
+  REGISTRY_LOGIN_SERVER: pbmaipocsnonprodcusacr.azurecr.io
+  IMAGE_NAME: pbmcaseinsight-fe
+  RESOURCE_GROUP: pbm-ai-pocs-nonprod-cus-rg
+  CONTAINER_APP_NAME: pbm-ai-pocs-np-caseinsight-fe
+  ACA_ENVIRONMENT: pbm-ai-pocs-non-prod-cus-cae
+  DOCKERFILE_PATH: ./frontend/Dockerfile
+  CONTEXT_PATH: .
+  PORT: 3000
+
+jobs:
+  build-and-push:
+    name: Build & Push image
+    runs-on: uhg-runner
+    # PRs only build (no push/deploy); direct pushes to master build, push, and deploy.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_LOGIN_SERVER }}
+          username: ${{ env.REGISTRY_NAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Login to UHG internal registry
+        uses: docker/login-action@v3
+        with:
+          registry: edgeinternal1uhg.optum.com
+          username: ${{ secrets.UHG_REGISTRY_USERNAME }}
+          password: ${{ secrets.UHG_REGISTRY_PASSWORD }}
+
+      # Create .env file with build-time environment variables.
+      # Repo variables/secrets referenced below must be configured in repository
+      # settings before the first deploy; NEXT_PUBLIC_* values are baked into the
+      # client bundle and must never hold secrets.
+      - name: Create .env file
+        run: |
+          cat > frontend/.env << 'EOF'
+          # MSID Config
+          PING_FED_CLIENT_ID=${{ vars.PING_FED_CLIENT_ID }}
+          PING_FED_AUTH_URL=${{ vars.PING_FED_AUTH_URL }}
+          AUTH_TOKEN_PATH=/oauth2/v2.0/token
+          OAUTH_ACTION_PATH=/oauth2/v2.0/authorize
+          MSID_USERINFO_URL=https://graph.microsoft.com/oidc/userinfo
+          # Shared configs
+          REDIRECT_URI=${{ vars.REDIRECT_URI }}
+          RESPONSE_TYPE=code
+          SCOPE=openid profile address email phone
+          ACTION=${{ vars.PING_FED_AUTH_URL }}
+          ACR_VALUES=R3_AAL1_MS-AD-Kerberos_Only
+          AUTHPASS_CLIENT_ID=${{ vars.AUTHPASS_CLIENT_ID }}
+          AUTH_PASS_ENV=${{ vars.AUTH_PASS_ENV || 'stage' }}
+          NEXT_PUBLIC_MSID_USERINFO_URL=${{ vars.NEXT_PUBLIC_MSID_USERINFO_URL }}
+          NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_API_PREFIX=/pbmcaseinsight/api
+          NEXT_PUBLIC_ANALYSIS_LOGS_ENABLED=${{ vars.NEXT_PUBLIC_ANALYSIS_LOGS_ENABLED || 'false' }}
+          NEXT_PUBLIC_FEEDBACK_ENABLED=${{ vars.NEXT_PUBLIC_FEEDBACK_ENABLED || 'true' }}
+          EOF
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.CONTEXT_PATH }}
+          file: ${{ env.DOCKERFILE_PATH }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          secrets: |
+            "jf-user=${{ secrets.UHG_REGISTRY_USERNAME }}"
+            "jf-token=${{ secrets.UHG_REGISTRY_PASSWORD }}"
+
+  deploy:
+    name: Deploy to Azure Container Apps
+    # Deploy only on direct pushes; PR builds stop after build-and-push.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs: build-and-push
+    runs-on: uhg-runner
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDS }}
+
+      - name: Deploy to ACA (existing app)
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          resourceGroup: ${{ env.RESOURCE_GROUP }}
+          containerAppName: ${{ env.CONTAINER_APP_NAME }}
+          imageToDeploy: ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          acrName: ${{ env.REGISTRY_NAME }}
+          # Client secrets must never be baked into the image; inject at deploy time instead.

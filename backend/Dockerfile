@@ -45,12 +45,12 @@ ENV PORT=8000 \
     UVICORN_TIMEOUT_KEEP_ALIVE=5 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    API_PREFIX=/pbmcms/api
+    API_PREFIX=/pbmcaseinsight/api
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget --spider -q http://localhost:8000/pbmcms/api/health || exit 1
+  CMD wget --spider -q http://localhost:8000/pbmcaseinsight/api/health || exit 1
 
 ENTRYPOINT ["uvicorn"]
 CMD ["app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
