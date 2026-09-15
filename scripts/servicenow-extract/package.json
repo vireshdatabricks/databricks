@@ -1,0 +1,22 @@
+{
+  "name": "servicenow-extract",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install-browsers": "playwright install chromium",
+    "debug-login-form": "tsx src/debug-login-form.ts",
+    "test-rest": "tsx src/test-rest.ts",
+    "extract": "tsx src/index.ts",
+    "download-attachments": "tsx src/downloadAttachments.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright": "^1.51.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

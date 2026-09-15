@@ -17,7 +17,7 @@
     "@uhg-optum-coreplatform/saas-session-handler-pkg": "^1.0.0",
     "@uhg-optum-coreplatform/security-as-a-service-pkg": "^2.3.6",
     "material-react-table": "^3.2.1",
-    "next": "15.5.23",
+    "next": "15.5.24",
     "node-cache": "^5.1.2",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -30,7 +30,16 @@
     "@types/react-dom": "^19",
     "@types/react-simple-maps": "^3.0.6",
     "eslint": "^9",
-    "eslint-config-next": "15.5.23",
+    "eslint-config-next": "15.5.24",
     "typescript": "^5"
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp": ">=0.35.4",
+      "postcss": ">=8.5.23",
+      "js-yaml": ">=4.3.2",
+      "qs": ">=6.16.0",
+      "uuid": ">=11.1.1"
+    }
   }
 }
