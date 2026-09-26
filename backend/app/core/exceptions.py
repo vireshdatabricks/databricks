@@ -47,6 +47,16 @@ class ConflictError(AppError):
     message = "Conflict"
 
 
+class UnprocessableEntityError(AppError):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    message = "Unprocessable entity"
+
+
+class ServiceUnavailableError(AppError):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    message = "Upstream data service unavailable"
+
+
 def _error_body(status_code: int, message: str, path: str) -> dict:
     return {"status_code": status_code, "message": message, "path": path}
 

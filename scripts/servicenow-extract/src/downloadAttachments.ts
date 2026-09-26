@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config";
@@ -8,19 +9,30 @@ import { getCsrfToken } from "./restApi";
 import { csvToObjects } from "./csv";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// Test batch size; bump this (or remove the slice) once validated.
-const TEST_BATCH_SIZE = 15;
-const SOURCE_CSV = path.join(__dirname, "..", "output", "servicenow-report-1788782802342.csv");
+const OUTPUT_DIR = path.join(__dirname, "..", "output");
 
 interface Attachment {
   sys_id: string;
   file_name: string;
 }
 
+async function loadTaskNumbersFromCsvs(): Promise<string[]> {
+  const entries = await readdir(OUTPUT_DIR, { withFileTypes: true });
+  const csvFiles = entries.filter((e) => e.isFile() && e.name.endsWith(".csv")).map((e) => e.name);
+
+  const taskNumbers = new Set<string>();
+  for (const file of csvFiles) {
+    const text = await readFile(path.join(OUTPUT_DIR, file), "utf-8");
+    for (const row of csvToObjects(text)) {
+      if (row.number) taskNumbers.add(row.number);
+    }
+  }
+  return [...taskNumbers];
+}
+
 async function main() {
   // Task numbers can be passed directly as CLI args (e.g. `tsx src/downloadAttachments.ts TSK007783281`);
-  // otherwise fall back to the first TEST_BATCH_SIZE unique numbers from the exported CSV.
+  // otherwise process every unique task number found across all case report CSVs in output/.
   const cliTaskNumbers = process.argv.slice(2).filter(Boolean);
 
   let taskNumbers: string[];
@@ -28,10 +40,8 @@ async function main() {
     taskNumbers = cliTaskNumbers;
     console.log(`Processing ${taskNumbers.length} task number(s) from command line.`);
   } else {
-    const csvText = await readFile(SOURCE_CSV, "utf-8");
-    const rows = csvToObjects(csvText);
-    taskNumbers = [...new Set(rows.map((r) => r.number).filter(Boolean))].slice(0, TEST_BATCH_SIZE);
-    console.log(`Loaded ${rows.length} rows from CSV, processing ${taskNumbers.length} unique task numbers.`);
+    taskNumbers = await loadTaskNumbersFromCsvs();
+    console.log(`Processing ${taskNumbers.length} unique task numbers found across CSVs in output/.`);
   }
 
   const userDataDir = path.join(__dirname, "..", ".edge-profile");
@@ -48,13 +58,21 @@ async function main() {
     const headers = { "X-UserToken": csrfToken };
 
     let totalAttachments = 0;
+    let tasksWithAttachments = 0;
+    const casesWithAttachments = new Set<string>();
 
-    for (const number of taskNumbers) {
-      const lookupRes = await context.request.get(`${config.instanceUrl}/api/now/table/u_case_task`, {
+    for (const [index, number] of taskNumbers.entries()) {
+      if (index > 0 && index % 50 === 0) {
+        console.log(`--- Progress: ${index}/${taskNumbers.length} tasks processed ---`);
+      }
+
+      try {
+        const lookupRes = await context.request.get(`${config.instanceUrl}/api/now/table/u_case_task`, {
         headers,
         params: {
           sysparm_query: `number=${number}`,
-          sysparm_fields: "sys_id,number",
+          sysparm_fields: "sys_id,number,parent.number",
+          sysparm_display_value: "true",
           sysparm_limit: "1",
         },
       });
@@ -64,12 +82,15 @@ async function main() {
         continue;
       }
 
-      const lookupBody = (await lookupRes.json()) as { result: { sys_id: string }[] };
-      const sysId = lookupBody.result[0]?.sys_id;
+      const lookupBody = (await lookupRes.json()) as { result: { sys_id: string; "parent.number"?: string }[] };
+      const record = lookupBody.result[0];
+      const sysId = record?.sys_id;
       if (!sysId) {
         console.log(`[${number}] no matching record found, skipping.`);
         continue;
       }
+
+      const caseNumber = record["parent.number"] || "unknown-case";
 
       const attachmentsRes = await context.request.get(`${config.instanceUrl}/api/now/attachment`, {
         headers,
@@ -88,33 +109,50 @@ async function main() {
       const attachments = attachmentsBody.result;
 
       if (attachments.length === 0) {
-        console.log(`[${number}] no attachments.`);
+        console.log(`[${caseNumber}/${number}] no attachments.`);
         continue;
       }
 
-      const taskDir = path.join(__dirname, "..", "output", "attachments", number);
+      const taskDir = path.join(__dirname, "..", "output", "attachments", caseNumber, number);
       await mkdir(taskDir, { recursive: true });
+      tasksWithAttachments++;
+      casesWithAttachments.add(caseNumber);
 
       for (const attachment of attachments) {
-        const fileRes = await context.request.get(
-          `${config.instanceUrl}/api/now/attachment/${attachment.sys_id}/file`,
-          { headers }
-        );
+        const fileName = attachment.file_name || `${attachment.sys_id}.bin`;
+        const filePath = path.join(taskDir, fileName);
 
-        if (!fileRes.ok()) {
-          console.error(`[${number}] failed to download ${attachment.file_name}: ${fileRes.status()}`);
+        if (existsSync(filePath)) {
+          console.log(`[${caseNumber}/${number}] already downloaded, skipping ${fileName}`);
           continue;
         }
 
-        const fileName = attachment.file_name || `${attachment.sys_id}.bin`;
-        const filePath = path.join(taskDir, fileName);
-        await writeFile(filePath, await fileRes.body());
-        totalAttachments++;
-        console.log(`[${number}] downloaded ${fileName}`);
+        try {
+          const fileRes = await context.request.get(
+            `${config.instanceUrl}/api/now/attachment/${attachment.sys_id}/file`,
+            { headers, timeout: 180000 }
+          );
+
+          if (!fileRes.ok()) {
+            console.error(`[${number}] failed to download ${fileName}: ${fileRes.status()}`);
+            continue;
+          }
+
+          await writeFile(filePath, await fileRes.body());
+          totalAttachments++;
+          console.log(`[${caseNumber}/${number}] downloaded ${fileName}`);
+        } catch (error) {
+          console.error(`[${caseNumber}/${number}] error downloading ${fileName}:`, error instanceof Error ? error.message : error);
+        }
+      }
+      } catch (error) {
+        console.error(`[${number}] unexpected error processing task:`, error instanceof Error ? error.message : error);
       }
     }
 
-    console.log(`\nDone. Downloaded ${totalAttachments} attachment(s) across ${taskNumbers.length} task(s).`);
+    console.log(
+      `\nDone. Downloaded ${totalAttachments} attachment(s) from ${tasksWithAttachments} task(s) across ${casesWithAttachments.size} case(s) (out of ${taskNumbers.length} task(s) checked).`
+    );
   } finally {
     await context.close();
   }

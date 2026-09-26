@@ -8,7 +8,9 @@
     "debug-login-form": "tsx src/debug-login-form.ts",
     "test-rest": "tsx src/test-rest.ts",
     "extract": "tsx src/index.ts",
-    "download-attachments": "tsx src/downloadAttachments.ts"
+    "download-attachments": "tsx src/downloadAttachments.ts",
+    "upload-attachments": "tsx src/uploadAttachments.ts",
+    "upload-cases": "tsx src/uploadCases.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

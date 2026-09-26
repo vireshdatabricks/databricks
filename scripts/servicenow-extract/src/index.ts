@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config";
 import { login } from "./login";
 import { downloadReportCsv } from "./extractReportTable";
+import { uploadFileToDatabricksVolume } from "./uploadToDatabricks";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -40,6 +41,10 @@ async function main() {
     }
 
     console.log(`Downloaded CSV to ${csvPath}`);
+
+    if (config.uploadToDatabricks) {
+      await uploadFileToDatabricksVolume(csvPath, path.join("cases", path.basename(csvPath)));
+    }
   } finally {
     await context.close();
   }

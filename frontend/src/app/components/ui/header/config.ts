@@ -4,5 +4,15 @@ export type INavItem =
 
 export const topNavigationItems: INavItem[] = [
   { label: 'Dashboard', link: '/dashboard', pathToMatch: 'dashboard', access: 'public' },
+  {
+    label: 'Analytics',
+    pathToMatch: 'dashboard',
+    access: 'protected',
+    children: [
+      { label: 'Overview', link: '/dashboard/overview' },
+      { label: 'Trends', link: '/dashboard/trends' },
+      { label: 'Themes', link: '/dashboard/themes' }
+    ]
+  },
   { label: 'About', link: '/about', pathToMatch: 'about', access: 'public' }
 ];
