@@ -198,3 +198,46 @@ export const getDateRisk = (params: QueryParams) => getJson<Envelope<OperationRo
 export const getDurations = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/durations', params);
 export const getDocumentation = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/documentation', params);
 export const getDataQuality = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/data-quality', params);
+
+export interface ReportFact {
+    fact_id: string;
+    label: string;
+    value: string;
+}
+
+export interface ReportSection {
+    heading: string;
+    body: string;
+    fact_ids: string[];
+}
+
+export interface SnapshotReportDraft {
+    status: string;
+    as_of_week: string;
+    logic_version: string;
+    generated_by_model: string;
+    sections: ReportSection[];
+    facts: ReportFact[];
+    disclaimers: string[];
+}
+
+export interface SnapshotReportRequest {
+    as_of_week?: string;
+    client_account?: string;
+    category?: string;
+    evidence_authorized?: boolean;
+}
+
+export async function generateSnapshotReportDraft(request: SnapshotReportRequest): Promise<SnapshotReportDraft> {
+    const response = await fetch(`${BASE_PATH}/api/v1/reports/snapshot-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+        cache: 'no-store',
+    });
+    if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new AnalyticsApiError(body?.message ?? `Request failed with status ${response.status}`, response.status);
+    }
+    return response.json();
+}

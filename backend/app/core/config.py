@@ -36,6 +36,21 @@ class Settings(BaseSettings):
     azure_client_id: str = ""
     azure_client_secret: str = ""
 
+    # AI gateway (OpenAI-compatible) for snapshot-report draft generation. Field names match
+    # the intake-agent POC's .env so the same onboarded gateway credentials can be reused as-is.
+    # ai_live_enabled gates all outbound calls; leave false until gateway access is approved.
+    ai_live_enabled: bool = False
+    aoai_endpoint: str = ""
+    aoai_deployment: str = ""
+    aoai_api_version: str = ""
+    azure_openai_api_key: str = ""
+    uhg_auth_url: str = ""
+    uhg_scope: str = ""
+    uhg_client_id: str = ""
+    uhg_client_secret: str = ""
+    uhg_project_id: str = ""
+    uhg_gateway_endpoint: str = ""
+
     @property
     def resolved_databricks_hostname(self) -> str:
         """Bare hostname for the SQL connector, derived from DATABRICKS_SERVER_HOSTNAME or DATABRICKS_HOST."""

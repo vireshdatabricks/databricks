@@ -12,7 +12,8 @@ export const topNavigationItems: INavItem[] = [
       { label: 'Overview', link: '/dashboard/overview' },
       { label: 'Operations', link: '/dashboard/operations' },
       { label: 'Trends', link: '/dashboard/trends' },
-      { label: 'Themes', link: '/dashboard/themes' }
+      { label: 'Themes', link: '/dashboard/themes' },
+      { label: 'Reports', link: '/dashboard/reports' }
     ]
   },
   { label: 'About', link: '/about', pathToMatch: 'about', access: 'public' }
