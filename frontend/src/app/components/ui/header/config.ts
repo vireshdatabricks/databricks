@@ -10,6 +10,7 @@ export const topNavigationItems: INavItem[] = [
     access: 'protected',
     children: [
       { label: 'Overview', link: '/dashboard/overview' },
+      { label: 'Operations', link: '/dashboard/operations' },
       { label: 'Trends', link: '/dashboard/trends' },
       { label: 'Themes', link: '/dashboard/themes' }
     ]

@@ -183,3 +183,18 @@ export const getCase = (caseNumber: string, params: { as_of_week?: string }) =>
     getJson<Envelope<CaseDetail>>(`/cases/${encodeURIComponent(caseNumber)}`, params);
 
 export const getMetadata = () => getJson<Envelope<MetadataResponse>>('/metadata');
+
+export interface OperationRow {
+    case_number?: string;
+    as_of_extract_week: string;
+    logic_version: string;
+    classification: string;
+    disclaimer: string | null;
+    [key: string]: string | number | boolean | null | undefined;
+}
+
+export const getWorkload = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/workload', params);
+export const getDateRisk = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/date-risk', params);
+export const getDurations = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/durations', params);
+export const getDocumentation = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/documentation', params);
+export const getDataQuality = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/data-quality', params);

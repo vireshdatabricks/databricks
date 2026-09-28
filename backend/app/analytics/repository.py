@@ -17,6 +17,13 @@ TASK_TRENDS = "gold_task_trend_monthly"
 THEMES = "gold_theme_candidate"
 THEME_LINKS = "gold_theme_case_link"
 NARRATIVE_SEGMENTS = "silver_case_narrative_segments"
+OPERATIONS_TABLES = {
+    "workload": "gold_case_aging_workload",
+    "date_risk": "gold_due_target_risk",
+    "durations": "gold_case_duration_breakdown",
+    "documentation": "gold_documentation_quality",
+    "data_quality": "gold_data_quality_coverage",
+}
 
 
 def _table(name: str) -> str:
@@ -196,3 +203,20 @@ def list_narrative_segments(case_number: str) -> list[dict]:
         ORDER BY segment_timestamp
     """
     return run_query(query, {"case_number": case_number})
+
+
+def list_operation_rows(
+    operation: str, columns: list[str], filters: dict[str, Any], order_by: str, limit: int, offset: int,
+) -> list[dict]:
+    """Read one allow-listed Operations Gold source with validated SQL identifiers only."""
+    table_name = OPERATIONS_TABLES[operation]
+    where_sql, params = _where(filters)
+    select_columns = ", ".join(columns)
+    query = f"""
+        SELECT {select_columns}
+        FROM {_table(table_name)}
+        {where_sql}
+        ORDER BY {order_by}
+        LIMIT {int(limit) + 1} OFFSET {int(offset)}
+    """
+    return run_query(query, params)

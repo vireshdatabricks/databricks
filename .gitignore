@@ -1,5 +1,6 @@
 # ---- Backend (Python / FastAPI) ----
 backend/.venv/
+backend/data/*.sqlite3
 venv/
 __pycache__/
 *.py[cod]

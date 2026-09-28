@@ -27,6 +27,27 @@ DATA_LIMITATIONS = [
     "First response, assignment timing, inactivity, handoffs, reopen rate, and SLA/PG metrics are out of scope for Phase 1.",
 ]
 
+OPERATION_LIMITATIONS = [
+    "Limited to the latest accepted weekly snapshot CSV extract; no event-history or SLA/PG source is used.",
+    "Operational-proxy values are not contractual SLA, PG, queue-time, time-in-state, or breach measures.",
+]
+
+OPERATION_COLUMNS = {
+    "workload": ["case_number", "as_of_extract_week", "is_open", "opened_at", "age_calendar_days", "age_band", "age_data_quality_status", "case_assignment_group", "case_assigned_to", "client_account", "line_of_business", "carrier_id", "account_id", "group_id", "category", "case_type", "subtype", "classification", "disclaimer", "reporting_time_zone", "logic_version"],
+    "date_risk": ["case_number", "as_of_extract_week", "is_open", "risk_reference_type", "risk_status", "risk_date", "days_from_as_of", "target_date_change_code", "case_assignment_group", "case_assigned_to", "client_account", "line_of_business", "carrier_id", "account_id", "group_id", "category", "case_type", "subtype", "classification", "disclaimer", "reporting_time_zone", "logic_version"],
+    "durations": ["case_number", "as_of_extract_week", "is_open", "opened_at", "actual_completion_at", "closed_at", "case_assignment_group", "client_account", "category", "case_type", "subtype", "tat_business_days_src", "tat_calendar_days_derived", "open_to_acd_calendar_days", "acd_to_close_calendar_days", "duration_data_quality_status", "classification", "disclaimer", "logic_version"],
+    "documentation": ["case_number", "as_of_extract_week", "is_open", "case_assignment_group", "client_account", "category", "case_type", "subtype", "description_present", "closure_note_present", "root_cause_present", "resolution_present", "documentation_status", "classification", "disclaimer", "logic_version"],
+    "data_quality": ["entity_type", "field_name", "total_record_count", "populated_record_count", "populated_rate", "quality_status", "as_of_extract_week", "source_coverage_note", "classification", "disclaimer", "logic_version"],
+}
+
+OPERATION_SORTS = {
+    "workload": {"age_desc": "age_calendar_days DESC NULLS LAST, case_number", "case_number": "case_number"},
+    "date_risk": {"risk_date": "risk_date NULLS LAST, case_number", "case_number": "case_number"},
+    "durations": {"opened_at": "opened_at DESC NULLS LAST, case_number", "case_number": "case_number"},
+    "documentation": {"case_number": "case_number", "status": "documentation_status, case_number"},
+    "data_quality": {"field_name": "field_name", "populated_rate": "populated_rate ASC, field_name"},
+}
+
 
 def _encode_cursor(offset: int) -> str:
     return base64.urlsafe_b64encode(str(offset).encode()).decode()
@@ -56,10 +77,29 @@ def _envelope(as_of_week: date, data: Any, next_cursor: str | None = None) -> di
         "as_of_week": as_of_week.isoformat(),
         "logic_version": settings.logic_version,
         "data_quality_status": settings.data_quality_status,
+        "data_limitations": DATA_LIMITATIONS,
         "data": data,
     }
     if next_cursor is not None:
         body["next_cursor"] = next_cursor
+    return body
+
+
+def list_operation(
+    operation: str, as_of_week: date | None, filters: dict[str, Any], sort: str | None, limit: int, cursor: str | None,
+) -> dict:
+    """Return a paginated, week-consistent Operations Gold result."""
+    resolved_week = resolve_as_of_week(as_of_week)
+    selected_sort = sort or next(iter(OPERATION_SORTS[operation]))
+    order_by = OPERATION_SORTS[operation].get(selected_sort)
+    if order_by is None:
+        raise BadRequestError(f"Unsupported sort for {operation}: {selected_sort}")
+    offset = _decode_cursor(cursor)
+    query_filters = {"as_of_extract_week": resolved_week, **filters}
+    rows = repository.list_operation_rows(operation, OPERATION_COLUMNS[operation], query_filters, order_by, limit, offset)
+    page, next_cursor = _paginate(rows, limit, offset)
+    body = _envelope(resolved_week, page, next_cursor)
+    body["data_limitations"] = OPERATION_LIMITATIONS
     return body
 
 

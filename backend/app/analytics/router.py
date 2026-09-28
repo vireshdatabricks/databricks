@@ -82,3 +82,60 @@ def get_case(
 @router.get("/metadata", status_code=status.HTTP_200_OK)
 def get_metadata():
     return service.get_metadata()
+
+
+def operation_filters(
+    client_account: str | None, line_of_business: str | None, carrier_id: str | None, account_id: str | None,
+    group_id: str | None, case_assignment_group: str | None, case_assigned_to: str | None, category: str | None,
+    case_type: str | None, subtype: str | None, is_open: bool | None,
+) -> dict:
+    return {"client_account": client_account, "line_of_business": line_of_business, "carrier_id": carrier_id,
+            "account_id": account_id, "group_id": group_id, "case_assignment_group": case_assignment_group,
+            "case_assigned_to": case_assigned_to, "category": category, "case_type": case_type,
+            "subtype": subtype, "is_open": is_open}
+
+
+@router.get("/operations/workload", status_code=status.HTTP_200_OK)
+def get_workload(as_of_week: date | None = AsOfWeekQuery, client_account: str | None = None, line_of_business: str | None = None,
+    carrier_id: str | None = None, account_id: str | None = None, group_id: str | None = None, case_assignment_group: str | None = None,
+    case_assigned_to: str | None = None, category: str | None = None, case_type: str | None = None, subtype: str | None = None,
+    is_open: bool | None = None, age_band: str | None = None, age_data_quality_status: str | None = None,
+    sort: str | None = None, limit: int = LimitQuery, cursor: str | None = CursorQuery):
+    filters = operation_filters(client_account, line_of_business, carrier_id, account_id, group_id, case_assignment_group, case_assigned_to, category, case_type, subtype, is_open)
+    filters.update({"age_band": age_band, "age_data_quality_status": age_data_quality_status})
+    return service.list_operation("workload", as_of_week, filters, sort, limit, cursor)
+
+
+@router.get("/operations/date-risk", status_code=status.HTTP_200_OK)
+def get_date_risk(as_of_week: date | None = AsOfWeekQuery, client_account: str | None = None, line_of_business: str | None = None,
+    carrier_id: str | None = None, account_id: str | None = None, group_id: str | None = None, case_assignment_group: str | None = None,
+    case_assigned_to: str | None = None, category: str | None = None, case_type: str | None = None, subtype: str | None = None,
+    is_open: bool | None = None, risk_status: str | None = None, risk_reference_type: str | None = None,
+    sort: str | None = None, limit: int = LimitQuery, cursor: str | None = CursorQuery):
+    filters = operation_filters(client_account, line_of_business, carrier_id, account_id, group_id, case_assignment_group, case_assigned_to, category, case_type, subtype, is_open)
+    filters.update({"risk_status": risk_status, "risk_reference_type": risk_reference_type})
+    return service.list_operation("date_risk", as_of_week, filters, sort, limit, cursor)
+
+
+@router.get("/operations/durations", status_code=status.HTTP_200_OK)
+def get_durations(as_of_week: date | None = AsOfWeekQuery, client_account: str | None = None, case_assignment_group: str | None = None,
+    category: str | None = None, case_type: str | None = None, subtype: str | None = None, is_open: bool | None = None,
+    duration_data_quality_status: str | None = None, sort: str | None = None, limit: int = LimitQuery, cursor: str | None = CursorQuery):
+    filters = {"client_account": client_account, "case_assignment_group": case_assignment_group, "category": category,
+               "case_type": case_type, "subtype": subtype, "is_open": is_open, "duration_data_quality_status": duration_data_quality_status}
+    return service.list_operation("durations", as_of_week, filters, sort, limit, cursor)
+
+
+@router.get("/operations/documentation", status_code=status.HTTP_200_OK)
+def get_documentation(as_of_week: date | None = AsOfWeekQuery, client_account: str | None = None, case_assignment_group: str | None = None,
+    category: str | None = None, case_type: str | None = None, subtype: str | None = None, is_open: bool | None = None,
+    documentation_status: str | None = None, sort: str | None = None, limit: int = LimitQuery, cursor: str | None = CursorQuery):
+    filters = {"client_account": client_account, "case_assignment_group": case_assignment_group, "category": category,
+               "case_type": case_type, "subtype": subtype, "is_open": is_open, "documentation_status": documentation_status}
+    return service.list_operation("documentation", as_of_week, filters, sort, limit, cursor)
+
+
+@router.get("/operations/data-quality", status_code=status.HTTP_200_OK)
+def get_data_quality(as_of_week: date | None = AsOfWeekQuery, entity_type: str | None = None, field_name: str | None = None,
+    quality_status: str | None = None, sort: str | None = None, limit: int = LimitQuery, cursor: str | None = CursorQuery):
+    return service.list_operation("data_quality", as_of_week, {"entity_type": entity_type, "field_name": field_name, "quality_status": quality_status}, sort, limit, cursor)
