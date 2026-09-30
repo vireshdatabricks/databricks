@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { Alert, Box, Checkbox, Divider, FormControlLabel, Grid, TextField, Typography } from '@mui/material';
 
 import * as Brand from '../../../components/ui';
-import { AnalyticsApiError, CaseDetail, CaseDiagnosticContext, DiagnosticDisposition, Envelope, createCaseDiagnostic, getCase, getCaseDiagnosticContext, reviewCaseDiagnostic } from '../../../utils/analytics-api';
+import { AnalyticsApiError, CaseDetail, CaseDiagnosticContext, DiagnosticDisposition, Envelope, createCaseDiagnostic, draftCaseDiagnostic, getCase, getCaseDiagnosticContext, reviewCaseDiagnostic } from '../../../utils/analytics-api';
 import FreshnessBanner from '../../components/freshness-banner';
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
@@ -31,6 +31,8 @@ function DiagnosticPanel({ caseNumber, asOfWeek }: { caseNumber: string; asOfWee
     const [owner, setOwner] = React.useState('');
     const [action, setAction] = React.useState('');
     const [rationale, setRationale] = React.useState<Record<string, string>>({});
+    const [drafting, setDrafting] = React.useState(false);
+    const [draftNotice, setDraftNotice] = React.useState<string | null>(null);
 
     const load = React.useCallback(() => {
         setLoading(true);
@@ -45,6 +47,26 @@ function DiagnosticPanel({ caseNumber, asOfWeek }: { caseNumber: string; asOfWee
 
     const toggleEvidence = (segmentId: string) => {
         setSelectedEvidence((ids) => ids.includes(segmentId) ? ids.filter((id) => id !== segmentId) : [...ids, segmentId]);
+    };
+
+    const draftWithAi = async () => {
+        setDrafting(true);
+        setError(null);
+        setDraftNotice(null);
+        try {
+            const draft = await draftCaseDiagnostic(caseNumber, asOfWeek);
+            setObservedIssue(draft.observed_issue);
+            setContributingFactor(draft.candidate_contributing_factor);
+            setDetectionGap(draft.detection_gap);
+            setOwner(draft.candidate_owner);
+            setAction(draft.proposed_action);
+            setSelectedEvidence(draft.evidence_segment_ids);
+            setDraftNotice(draft.disclaimer);
+        } catch (err) {
+            setError(err instanceof AnalyticsApiError ? err.message : 'Unable to draft a candidate diagnosis.');
+        } finally {
+            setDrafting(false);
+        }
     };
 
     const create = async () => {
@@ -63,7 +85,7 @@ function DiagnosticPanel({ caseNumber, asOfWeek }: { caseNumber: string; asOfWee
                 proposed_action: action,
                 evidence_segment_ids: selectedEvidence,
             });
-            setObservedIssue(''); setContributingFactor(''); setDetectionGap(''); setOwner(''); setAction(''); setSelectedEvidence([]);
+            setObservedIssue(''); setContributingFactor(''); setDetectionGap(''); setOwner(''); setAction(''); setSelectedEvidence([]); setDraftNotice(null);
             await load();
         } catch (err) {
             setError(err instanceof AnalyticsApiError ? err.message : 'Unable to create the diagnostic candidate.');
@@ -97,7 +119,11 @@ function DiagnosticPanel({ caseNumber, asOfWeek }: { caseNumber: string; asOfWee
             {context && <>
                 <Alert severity="warning" sx={{ mt: 2 }}>{context.identity_notice}</Alert>
                 <Box sx={{ display: 'grid', gap: 2, mt: 3 }}>
-                    <Typography variant="subtitle1">Create diagnostic candidate</Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                        <Typography variant="subtitle1">Create diagnostic candidate</Typography>
+                        <Brand.Button variant="secondary" size="compact" onClick={draftWithAi} loading={drafting}>Draft with AI</Brand.Button>
+                    </Box>
+                    {draftNotice && <Alert severity="warning">{draftNotice}</Alert>}
                     <TextField label="Observed issue" value={observedIssue} onChange={(event) => setObservedIssue(event.target.value)} required multiline minRows={2} />
                     <TextField label="Candidate contributing factor" value={contributingFactor} onChange={(event) => setContributingFactor(event.target.value)} multiline minRows={2} helperText="Hypothesis only — do not state this as a confirmed root cause." />
                     <TextField label="What may not have caught it" value={detectionGap} onChange={(event) => setDetectionGap(event.target.value)} multiline minRows={2} />

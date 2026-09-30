@@ -89,6 +89,15 @@ def list_diagnostics(database_path: Path, case_number: str, as_of_week: str) -> 
         return [_diagnostic(connection, row["diagnostic_id"]) for row in rows]
 
 
+def list_diagnostics_by_client(database_path: Path, client_account: str, as_of_week: str) -> list[dict[str, Any]]:
+    with _connect(database_path) as connection:
+        rows = connection.execute(
+            "SELECT diagnostic_id FROM case_diagnostic_candidate WHERE client_account = ? AND as_of_week = ? ORDER BY created_at DESC, diagnostic_id DESC",
+            (client_account, as_of_week),
+        ).fetchall()
+        return [_diagnostic(connection, row["diagnostic_id"]) for row in rows]
+
+
 def create_diagnostic(database_path: Path, case_number: str, as_of_week: str, client_account: str | None, actor: str, payload: Any, evidence_rows: list[dict[str, Any]]) -> dict[str, Any]:
     diagnostic_id = str(uuid.uuid4())
     with _connect(database_path) as connection:

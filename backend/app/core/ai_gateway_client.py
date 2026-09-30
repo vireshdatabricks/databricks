@@ -2,8 +2,11 @@
 
 Mirrors the UHG gateway / Azure OpenAI client pattern from the intake-agent POC so the same
 onboarded gateway credentials (AI_LIVE_ENABLED, AOAI_*, UHG_*) can be reused here unchanged.
-Only this backend module talks to the gateway; the browser and Databricks are never exposed
-to it, and this module never receives attachment binaries or raw case narrative text.
+Only this backend module talks to the gateway; the browser and Databricks are never exposed to
+it. It never receives attachment binaries. The one deliberate exception to "no raw case
+narrative text" is diagnostics/service.py::draft_case_diagnostic, which sends bounded,
+allow-listed evidence excerpts through the LOCAL_TEST client only (report_local_test_enabled),
+never the live UHG/AOAI gateway -- see reference/42_DIAGNOSTIC_CANDIDATE_DRAFTING_AGENT_PLAN.md.
 """
 from __future__ import annotations
 

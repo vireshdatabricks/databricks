@@ -7,12 +7,14 @@ import { Box, Chip, Divider, Grid, TextField, Typography } from '@mui/material';
 import * as Brand from '../../components/ui';
 import {
     AnalyticsApiError,
+    ClientDiagnosticReportSummary,
     ReportFact,
     ReportSection,
     SnapshotReportDraft,
     InsightDisposition,
     ReportReviewPacket,
     createSnapshotReview,
+    getClientDiagnosticReportSummary,
     reportExportUrl,
     reviewReportInsight,
 } from '../../utils/analytics-api';
@@ -277,6 +279,91 @@ function AllInsightsReview({ packet, onUpdate }: { packet: ReportReviewPacket; o
     </Box>;
 }
 
+function DiagnosticSummarySection({ clientAccount, asOfWeek }: { clientAccount: string; asOfWeek?: string }) {
+    const [summary, setSummary] = React.useState<ClientDiagnosticReportSummary | null>(null);
+    const [loading, setLoading] = React.useState(false);
+    const [error, setError] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        getClientDiagnosticReportSummary(clientAccount, { as_of_week: asOfWeek })
+            .then((result) => { if (!cancelled) setSummary(result); })
+            .catch((err) => { if (!cancelled) setError(err instanceof AnalyticsApiError ? err.message : 'Unable to load case diagnostics for this client.'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [clientAccount, asOfWeek]);
+
+    if (loading) return <Typography aria-live="polite">Loading case diagnostics...</Typography>;
+    if (error) return <Brand.Card bordered="outlined" role="alert"><Typography color="error">{error}</Typography></Brand.Card>;
+    if (!summary) return null;
+
+    return (
+        <Box sx={{ display: 'grid', gap: 2 }}>
+            <Typography variant="h5" component="h2">Case diagnostics: {summary.client_account}</Typography>
+            <Brand.Card bordered="outlined">
+                <Grid container spacing={2}>
+                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Created</Typography><Typography variant="h6">{summary.created}</Typography></Grid>
+                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Validated</Typography><Typography variant="h6">{summary.validated}</Typography></Grid>
+                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Pending review</Typography><Typography variant="h6">{summary.pending}</Typography></Grid>
+                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Reviewed, not validated</Typography><Typography variant="h6">{summary.reviewed_not_validated}</Typography></Grid>
+                </Grid>
+            </Brand.Card>
+
+            {summary.validated === 0 ? (
+                <Brand.Card bordered="outlined">
+                    <Typography variant="body1">0 validated diagnostics for this client and week.</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        This reflects the current review state only, not an absence of underlying issues.
+                    </Typography>
+                </Brand.Card>
+            ) : (
+                <>
+                    {summary.consolidated_patterns.length > 0 && (
+                        <Box sx={{ display: 'grid', gap: 1.5 }}>
+                            <Typography variant="h6">Consolidated patterns</Typography>
+                            {summary.consolidated_patterns.map((pattern) => (
+                                <Brand.Card key={pattern.contributing_factor} bordered="outlined" sx={{ display: 'grid', gap: 1 }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+                                        <Typography variant="subtitle1">{pattern.contributing_factor}</Typography>
+                                        <Chip label={`${pattern.case_count} cases`} size="small" />
+                                    </Box>
+                                    <Typography variant="body2" color="text.secondary">Cases: {pattern.case_numbers.join(', ')}</Typography>
+                                    {pattern.candidate_owners.length > 0 && <Typography variant="body2"><strong>Candidate owners:</strong> {pattern.candidate_owners.join(', ')}</Typography>}
+                                    {pattern.proposed_actions.length > 0 && <Typography variant="body2"><strong>Proposed actions:</strong> {pattern.proposed_actions.join(', ')}</Typography>}
+                                </Brand.Card>
+                            ))}
+                        </Box>
+                    )}
+
+                    {summary.validated_one_off_diagnostics.length > 0 && (
+                        <Box sx={{ display: 'grid', gap: 1.5 }}>
+                            <Typography variant="h6">Validated one-off diagnostics</Typography>
+                            {summary.validated_one_off_diagnostics.map((diagnostic) => (
+                                <Brand.Card key={diagnostic.diagnostic_id} bordered="outlined" sx={{ display: 'grid', gap: 0.5 }}>
+                                    <Typography variant="subtitle2">Case {diagnostic.case_number}</Typography>
+                                    <Typography variant="body2"><strong>Observed issue:</strong> {diagnostic.observed_issue}</Typography>
+                                    {diagnostic.candidate_contributing_factor && <Typography variant="body2"><strong>Contributing factor:</strong> {diagnostic.candidate_contributing_factor}</Typography>}
+                                    {diagnostic.candidate_owner && <Typography variant="body2"><strong>Candidate owner:</strong> {diagnostic.candidate_owner}</Typography>}
+                                    {diagnostic.proposed_action && <Typography variant="body2"><strong>Proposed action:</strong> {diagnostic.proposed_action}</Typography>}
+                                </Brand.Card>
+                            ))}
+                        </Box>
+                    )}
+                </>
+            )}
+
+            <Brand.Card bordered="outlined">
+                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                    {summary.limitations.map((limitation) => <li key={limitation}><Typography variant="body2" color="text.secondary">{limitation}</Typography></li>)}
+                    <li><Typography variant="body2" color="text.secondary">{summary.identity_notice}</Typography></li>
+                </Box>
+            </Brand.Card>
+        </Box>
+    );
+}
+
 function ReportsContent() {
     const searchParams = useSearchParams();
     const [draft, setDraft] = React.useState<SnapshotReportDraft | null>(null);
@@ -342,6 +429,19 @@ function ReportsContent() {
                     <Typography variant="h6">What this produces</Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
                         A persisted local review packet with an executive snapshot, evidence-backed review priorities, immutable review decisions, approval counts, and gated HTML exports.
+                    </Typography>
+                </Brand.Card>
+            )}
+
+            <Divider sx={{ my: 1 }} />
+
+            {clientAccount ? (
+                <DiagnosticSummarySection clientAccount={clientAccount} asOfWeek={asOfWeek} />
+            ) : (
+                <Brand.Card bordered="outlined">
+                    <Typography variant="h6">Case diagnostics</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Enter a client account above to see its reviewer-validated case diagnostics: created/validated/pending counts, consolidated patterns, and one-off findings. This is a separate rollup of already-reviewed diagnostics, not part of the aggregate briefing above.
                     </Typography>
                 </Brand.Card>
             )}

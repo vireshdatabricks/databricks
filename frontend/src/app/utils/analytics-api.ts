@@ -324,6 +324,61 @@ export const reviewCaseDiagnostic = (diagnosticId: string, request: { dispositio
         body: JSON.stringify(request),
     });
 
+export interface DiagnosticDraft {
+    case_number: string;
+    as_of_week: string;
+    observed_issue: string;
+    candidate_contributing_factor: string;
+    detection_gap: string;
+    candidate_owner: string;
+    proposed_action: string;
+    evidence_segment_ids: string[];
+    generated_by_model: string;
+    disclaimer: string;
+}
+
+export const draftCaseDiagnostic = (caseNumber: string, asOfWeek: string) =>
+    diagnosticJson<DiagnosticDraft>(`/cases/${encodeURIComponent(caseNumber)}/candidates/draft?as_of_week=${encodeURIComponent(asOfWeek)}`, {
+        method: 'POST',
+    });
+
+export interface DiagnosticReportOneOff {
+    diagnostic_id: string;
+    case_number: string;
+    observed_issue: string;
+    candidate_contributing_factor: string;
+    detection_gap: string;
+    candidate_owner: string;
+    proposed_action: string;
+}
+
+export interface DiagnosticReportPattern {
+    contributing_factor: string;
+    case_count: number;
+    case_numbers: string[];
+    candidate_owners: string[];
+    proposed_actions: string[];
+}
+
+export interface ClientDiagnosticReportSummary {
+    client_account: string;
+    as_of_week: string;
+    created: number;
+    validated: number;
+    pending: number;
+    reviewed_not_validated: number;
+    validated_one_off_diagnostics: DiagnosticReportOneOff[];
+    consolidated_patterns: DiagnosticReportPattern[];
+    identity_notice: string;
+    limitations: string[];
+}
+
+export const getClientDiagnosticReportSummary = (clientAccount: string, params: { as_of_week?: string }) => {
+    const query = new URLSearchParams({ client_account: clientAccount });
+    if (params.as_of_week) query.set('as_of_week', params.as_of_week);
+    return diagnosticJson<ClientDiagnosticReportSummary>(`/reports/summary?${query.toString()}`);
+};
+
 export const getMetadata = () => getJson<Envelope<MetadataResponse>>('/metadata');
 
 export interface OperationRow {

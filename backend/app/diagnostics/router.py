@@ -20,6 +20,16 @@ def get_case_diagnostic_context(case_number: str = Path(...), as_of_week: date |
     return service.get_case_diagnostics(settings.report_workflow_db_path, case_number, as_of_week)
 
 
+@router.get("/reports/summary")
+def get_client_diagnostic_report_summary(client_account: str, as_of_week: date | None = None):
+    return service.get_client_diagnostic_report_summary(settings.report_workflow_db_path, client_account, as_of_week)
+
+
+@router.post("/cases/{case_number}/candidates/draft", status_code=status.HTTP_200_OK)
+def post_case_diagnostic_draft(case_number: str = Path(...), as_of_week: date | None = None):
+    return service.draft_case_diagnostic(case_number, as_of_week)
+
+
 @router.post("/cases/{case_number}/candidates", status_code=status.HTTP_201_CREATED)
 def post_case_diagnostic_candidate(case_number: str, request: DiagnosticCandidateRequest, as_of_week: date | None = None, x_diagnostic_reviewer: str | None = Header(default=None)):
     try:
