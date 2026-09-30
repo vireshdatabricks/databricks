@@ -73,28 +73,41 @@ def get_case_summary(as_of_week: date, client_account: str | None, line_of_busin
     return rows[0] if rows else {}
 
 
-def get_task_summary(as_of_week: date, assignment_group: str | None) -> dict:
+def get_task_summary(as_of_week: date, client_account: str | None, assignment_group: str | None) -> dict:
     where_sql, params = _where({
-        "as_of_extract_week": as_of_week,
-        "task_assignment_group": assignment_group,
+        "t.as_of_extract_week": as_of_week,
+        "t.task_assignment_group": assignment_group,
     })
+    # gold_task_fact deliberately does not duplicate client dimensions. Scope task
+    # counts through its stable case_number relationship to the case fact instead
+    # of querying a non-existent task client_account column.
+    if client_account is not None:
+        client_predicate = (
+            f" AND EXISTS (SELECT 1 FROM {_table(CASE_FACT)} c "
+            "WHERE c.as_of_extract_week = t.as_of_extract_week "
+            "AND c.case_number = t.case_number AND c.client_account = :task_client_account)"
+        )
+        params["task_client_account"] = client_account
+    else:
+        client_predicate = ""
     query = f"""
         SELECT
             COUNT(DISTINCT task_number) AS total_task_count,
             COUNT(DISTINCT CASE WHEN is_open THEN task_number END) AS open_task_count,
             COUNT(DISTINCT CASE WHEN NOT is_open THEN task_number END) AS closed_task_count
-        FROM {_table(TASK_FACT)}
-        {where_sql}
+        FROM {_table(TASK_FACT)} t
+        {where_sql}{client_predicate}
     """
     rows = run_query(query, params)
     return rows[0] if rows else {}
 
 
 def list_case_trends(
-    client_account: str | None, category: str | None, case_type: str | None,
+    as_of_week: date, client_account: str | None, category: str | None, case_type: str | None,
     subtype: str | None, root_cause: str | None, limit: int, offset: int,
 ) -> list[dict]:
     where_sql, params = _where({
+        "as_of_extract_week": as_of_week,
         "client_account": client_account,
         "category": category,
         "case_type": case_type,
@@ -114,10 +127,11 @@ def list_case_trends(
 
 
 def list_task_trends(
-    assignment_group: str | None, state: str | None, category: str | None,
+    as_of_week: date, assignment_group: str | None, state: str | None, category: str | None,
     task_type: str | None, subtype: str | None, limit: int, offset: int,
 ) -> list[dict]:
     where_sql, params = _where({
+        "as_of_extract_week": as_of_week,
         "task_assignment_group": assignment_group,
         "task_state": state,
         "task_category": category,
@@ -156,6 +170,125 @@ def list_themes(
         LIMIT {int(limit) + 1} OFFSET {int(offset)}
     """
     return run_query(query, params)
+
+
+def get_case_trend_series(
+    as_of_week: date, client_account: str | None, category: str | None,
+    case_type: str | None, subtype: str | None, root_cause: str | None,
+) -> list[dict]:
+    """Aggregate all selected-week case trend dimensions into a monthly series."""
+    where_sql, params = _where({
+        "as_of_extract_week": as_of_week,
+        "client_account": client_account,
+        "category": category,
+        "case_type": case_type,
+        "subtype": subtype,
+        "root_cause": root_cause,
+    })
+    query = f"""
+        SELECT report_month,
+               SUM(opened_case_count) AS opened_count,
+               SUM(closed_case_count) AS closed_count,
+               SUM(record_count) AS represented_record_count
+        FROM {_table(CASE_TRENDS)}
+        {where_sql}
+        GROUP BY report_month
+        ORDER BY report_month
+    """
+    return run_query(query, params)
+
+
+def get_task_trend_series(
+    as_of_week: date, assignment_group: str | None, state: str | None,
+    category: str | None, task_type: str | None, subtype: str | None,
+) -> list[dict]:
+    """Aggregate all selected-week task trend dimensions into a monthly series."""
+    where_sql, params = _where({
+        "as_of_extract_week": as_of_week,
+        "task_assignment_group": assignment_group,
+        "task_state": state,
+        "task_category": category,
+        "task_type": task_type,
+        "task_subtype": subtype,
+    })
+    query = f"""
+        SELECT report_month,
+               SUM(opened_task_count) AS opened_count,
+               SUM(closed_task_count) AS closed_count,
+               SUM(record_count) AS represented_record_count
+        FROM {_table(TASK_TRENDS)}
+        {where_sql}
+        GROUP BY report_month
+        ORDER BY report_month
+    """
+    return run_query(query, params)
+
+
+def get_theme_summary(
+    as_of_week: date, category: str | None, root_cause: str | None,
+    min_support: int | None, top_limit: int,
+) -> dict:
+    """Return full-universe theme aggregates and a bounded ranked candidate set.
+
+    This deliberately does not reuse ``list_themes``: that function is paginated,
+    whereas dashboard headline measures must cover every matching theme candidate.
+    """
+    filters = {
+        "as_of_extract_week": as_of_week,
+        "category": category,
+        "root_cause": root_cause,
+    }
+    where_sql, params = _where(filters)
+    aggregate_query = f"""
+        SELECT
+            COUNT(*) AS total_candidate_count,
+            COUNT(CASE WHEN case_count >= COALESCE(:min_support, min_support_threshold) THEN 1 END)
+                AS candidates_meeting_support_count,
+            COALESCE(:min_support, MIN(min_support_threshold), 0) AS min_support_threshold
+        FROM {_table(THEMES)}
+        {where_sql}
+    """
+    aggregate_params = {**params, "min_support": min_support}
+    aggregate_rows = run_query(aggregate_query, aggregate_params)
+    aggregate = aggregate_rows[0] if aggregate_rows else {}
+
+    # Theme candidates are one deterministic category/root-cause membership per
+    # case. Count the links explicitly so the represented-case measure remains
+    # correct even if that Gold-table implementation changes.
+    link_filters = {
+        "t.as_of_extract_week": as_of_week,
+        "t.category": category,
+        "t.root_cause": root_cause,
+    }
+    link_where_sql, link_params = _where(link_filters)
+    represented_query = f"""
+        SELECT COUNT(DISTINCT l.case_number) AS cases_represented_count
+        FROM {_table(THEME_LINKS)} l
+        JOIN {_table(THEMES)} t
+          ON t.theme_id = l.theme_id AND t.as_of_extract_week = l.as_of_extract_week
+        {link_where_sql}
+    """
+    represented_rows = run_query(represented_query, link_params)
+    represented = represented_rows[0] if represented_rows else {}
+
+    top_query = f"""
+        SELECT theme_id, theme_label, category, root_cause, case_count,
+               occurrence_rate, denominator_count, min_support_threshold,
+               meets_min_support, method_type
+        FROM {_table(THEMES)}
+        {where_sql}{' AND' if where_sql else ' WHERE'}
+            case_count >= COALESCE(:min_support, min_support_threshold)
+        ORDER BY case_count DESC, theme_id
+        LIMIT {int(top_limit)}
+    """
+    top_rows = run_query(top_query, aggregate_params)
+    return {
+        "total_candidate_count": aggregate.get("total_candidate_count") or 0,
+        "candidates_meeting_support_count": aggregate.get("candidates_meeting_support_count") or 0,
+        "cases_represented_count": represented.get("cases_represented_count") or 0,
+        "min_support_threshold": aggregate.get("min_support_threshold") or 0,
+        "top_candidates": top_rows,
+    }
 
 
 def get_theme(theme_id: str, as_of_week: date) -> dict | None:
@@ -220,3 +353,81 @@ def list_operation_rows(
         LIMIT {int(limit) + 1} OFFSET {int(offset)}
     """
     return run_query(query, params)
+
+
+def get_operation_summary(operation: str, filters: dict[str, Any]) -> dict:
+    """Return allow-listed, full-filter-universe aggregates for an Operations tab."""
+    table_name = OPERATIONS_TABLES[operation]
+    where_sql, params = _where(filters)
+
+    if operation == "workload":
+        totals_query = f"""
+            SELECT COUNT(DISTINCT case_number) AS total_case_count,
+                   COUNT(DISTINCT CASE WHEN is_open THEN case_number END) AS open_case_count,
+                   COUNT(DISTINCT CASE WHEN age_data_quality_status <> 'VALID' THEN case_number END) AS unknown_age_count,
+                   MAX(age_calendar_days) AS oldest_age_calendar_days
+            FROM {_table(table_name)} {where_sql}
+        """
+        age_query = f"""
+            SELECT COALESCE(age_band, 'unknown') AS label, COUNT(DISTINCT case_number) AS count
+            FROM {_table(table_name)} {where_sql}
+            GROUP BY COALESCE(age_band, 'unknown')
+            ORDER BY count DESC, label
+        """
+        group_query = f"""
+            SELECT COALESCE(case_assignment_group, 'Unassigned') AS label, COUNT(DISTINCT case_number) AS count
+            FROM {_table(table_name)} {where_sql}
+            GROUP BY COALESCE(case_assignment_group, 'Unassigned')
+            ORDER BY count DESC, label
+            LIMIT 10
+        """
+        totals = run_query(totals_query, params)[0]
+        return {**totals, "age_band_counts": run_query(age_query, params), "assignment_group_counts": run_query(group_query, params)}
+
+    if operation == "date_risk":
+        totals_query = f"""
+            SELECT COUNT(DISTINCT case_number) AS total_case_count,
+                   COUNT(DISTINCT CASE WHEN is_open THEN case_number END) AS open_case_count,
+                   COUNT(DISTINCT CASE WHEN risk_date IS NOT NULL THEN case_number END) AS usable_risk_date_count,
+                   COUNT(DISTINCT CASE WHEN risk_status = 'overdue' THEN case_number END) AS overdue_case_count
+            FROM {_table(table_name)} {where_sql}
+        """
+        status_query = f"""
+            SELECT COALESCE(risk_status, 'unknown') AS label, COUNT(DISTINCT case_number) AS count
+            FROM {_table(table_name)} {where_sql}
+            GROUP BY COALESCE(risk_status, 'unknown')
+            ORDER BY count DESC, label
+        """
+        reference_query = f"""
+            SELECT COALESCE(risk_reference_type, 'unknown') AS label, COUNT(DISTINCT case_number) AS count
+            FROM {_table(table_name)} {where_sql}
+            GROUP BY COALESCE(risk_reference_type, 'unknown')
+            ORDER BY count DESC, label
+        """
+        totals = run_query(totals_query, params)[0]
+        return {**totals, "risk_status_counts": run_query(status_query, params), "risk_reference_type_counts": run_query(reference_query, params)}
+
+    if operation == "durations":
+        totals_query = f"SELECT COUNT(DISTINCT case_number) AS total_case_count, COUNT(DISTINCT CASE WHEN is_open THEN case_number END) AS open_case_count FROM {_table(table_name)} {where_sql}"
+        status_query = f"SELECT COALESCE(duration_data_quality_status, 'unknown') AS label, COUNT(DISTINCT case_number) AS count FROM {_table(table_name)} {where_sql} GROUP BY COALESCE(duration_data_quality_status, 'unknown') ORDER BY count DESC, label"
+        totals = run_query(totals_query, params)[0]
+        return {**totals, "quality_status_counts": run_query(status_query, params)}
+
+    if operation == "documentation":
+        totals_query = f"""SELECT COUNT(DISTINCT case_number) AS total_case_count, COUNT(DISTINCT CASE WHEN NOT is_open THEN case_number END) AS closed_case_count,
+            COUNT(DISTINCT CASE WHEN description_present = false THEN case_number END) AS missing_description_count,
+            COUNT(DISTINCT CASE WHEN closure_note_present = false THEN case_number END) AS missing_closure_note_count,
+            COUNT(DISTINCT CASE WHEN root_cause_present = false THEN case_number END) AS missing_root_cause_count,
+            COUNT(DISTINCT CASE WHEN resolution_present = false THEN case_number END) AS missing_resolution_count
+            FROM {_table(table_name)} {where_sql}"""
+        status_query = f"SELECT COALESCE(documentation_status, 'unknown') AS label, COUNT(DISTINCT case_number) AS count FROM {_table(table_name)} {where_sql} GROUP BY COALESCE(documentation_status, 'unknown') ORDER BY count DESC, label"
+        totals = run_query(totals_query, params)[0]
+        return {**totals, "documentation_status_counts": run_query(status_query, params)}
+
+    if operation == "data_quality":
+        totals_query = f"SELECT COUNT(*) AS field_count, MIN(populated_rate) AS lowest_populated_rate FROM {_table(table_name)} {where_sql}"
+        status_query = f"SELECT COALESCE(quality_status, 'unknown') AS label, COUNT(*) AS count FROM {_table(table_name)} {where_sql} GROUP BY COALESCE(quality_status, 'unknown') ORDER BY count DESC, label"
+        totals = run_query(totals_query, params)[0]
+        return {**totals, "quality_status_counts": run_query(status_query, params)}
+
+    raise ValueError(f"Unsupported operation summary: {operation}")
