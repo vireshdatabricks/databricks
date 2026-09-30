@@ -36,3 +36,18 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# ---- Raw ServiceNow/Databricks source data ----
+# Contains real case exports, attachments, and recordings with customer
+# data and, at least once, a plaintext credential lifted from case text.
+# Never track this directory.
+databricks/
+
+# ---- Local agent coordination memory (kept local-only, not pushed) ----
+AGENTS.md
+CLAUDE.md
+00_START_HERE.md
+README.md
+notes/
+reference/
+project_skills/
