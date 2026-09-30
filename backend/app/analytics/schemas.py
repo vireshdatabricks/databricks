@@ -73,6 +73,8 @@ class NarrativeSegment(BaseModel):
     segment_timestamp: datetime | None = None
     segment_text: str
     source_column: str
+    source_file: str | None = None
+    extract_week: date | None = None
 
 
 class CaseDetail(BaseModel):

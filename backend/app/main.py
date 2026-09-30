@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.insights.rbac import initialize_sqlite
+from app.diagnostics.workflow import initialize_diagnostic_workflow
 from app.reports.workflow import initialize_workflow
 from app.router import api_router
 
@@ -21,6 +22,7 @@ logger = logging.getLogger("app.main")
 async def lifespan(app: FastAPI):
     initialize_sqlite(settings.report_workflow_db_path)
     initialize_workflow(settings.report_workflow_db_path)
+    initialize_diagnostic_workflow(settings.report_workflow_db_path)
     yield
 
 

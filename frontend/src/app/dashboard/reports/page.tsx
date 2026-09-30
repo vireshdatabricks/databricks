@@ -2,7 +2,7 @@
 
 import React, { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Box, Chip, Divider, Grid, MenuItem, TextField, Typography } from '@mui/material';
+import { Box, Chip, Divider, Grid, TextField, Typography } from '@mui/material';
 
 import * as Brand from '../../components/ui';
 import {
@@ -25,15 +25,53 @@ const BASE_LIMITATIONS = [
     'Case-level narrative evidence is not included until authenticated authorization is available.',
 ];
 
+const DISPLAY_LABELS: Record<string, string> = {
+    SYSTEM_GENERATED_DRAFT: 'System-generated draft',
+    DRAFT_REQUIRES_REVIEW: 'Draft requires review',
+    LOCAL_TEST_ONLY: 'Local test only',
+    ADDITIONAL_EVIDENCE_REQUIRED: 'Additional evidence required',
+    AGGREGATE_FACT: 'Aggregate fact',
+    TICKET_FIELD: 'Ticket field',
+    WORK_NOTE: 'Work note',
+    VALIDATED: 'Validated',
+    REJECTED: 'Rejected',
+    REVISED: 'Revised',
+    DUPLICATE: 'Duplicate',
+    PENDING: 'Pending',
+};
+
+const REPORT_ACTION_SX = { width: 168, justifyContent: 'center' };
+
+function displayLabel(value: string) {
+    return DISPLAY_LABELS[value] ?? value.replaceAll('_', ' ').replaceAll('.', ' / ');
+}
+
+function displayValue(value: string) {
+    return value.replaceAll('_', ' ');
+}
+
+function NarrativeText({ text }: { text: string }) {
+    const blocks = text.trim().split(/\r?\n\s*\r?\n/).filter(Boolean);
+    return <Box sx={{ display: 'grid', gap: 1.25 }}>
+        {blocks.map((block, index) => {
+            const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+            const bulletLines = lines.length > 0 && lines.every((line) => /^[*-]\s+/.test(line));
+            return bulletLines
+                ? <Box component="ul" key={index} sx={{ m: 0, pl: 2.5 }}>{lines.map((line, lineIndex) => <li key={lineIndex}>{displayValue(line.replace(/^[*-]\s+/, ''))}</li>)}</Box>
+                : <Typography key={index} variant="body1" sx={{ lineHeight: 1.75, fontSize: '1.02rem' }}>{displayValue(lines.join(' '))}</Typography>;
+        })}
+    </Box>;
+}
+
 function labelForFact(factId: string, factsById: Map<string, ReportFact>) {
-    return factsById.get(factId)?.label ?? factId;
+    return displayLabel(factsById.get(factId)?.label ?? factId);
 }
 
 function ReportSectionCard({ section, factsById }: { section: ReportSection; factsById: Map<string, ReportFact> }) {
     return (
         <Brand.Card bordered="outlined" sx={{ display: 'grid', gap: 1.5 }}>
-            <Typography variant="h6">{section.heading}</Typography>
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>{section.body}</Typography>
+            <Typography variant="h6">{displayLabel(section.heading)}</Typography>
+            <NarrativeText text={section.body} />
             <Divider />
             <Box>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
@@ -41,7 +79,7 @@ function ReportSectionCard({ section, factsById }: { section: ReportSection; fac
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
                     {section.fact_ids.map((factId) => (
-                        <Chip key={factId} label={labelForFact(factId, factsById)} size="small" variant="outlined" title={factId} />
+                        <Chip key={factId} label={labelForFact(factId, factsById)} size="small" variant="outlined" />
                     ))}
                 </Box>
             </Box>
@@ -64,10 +102,9 @@ function ReferencedFacts({ draft }: { draft: SnapshotReportDraft }) {
                     const fact = factsById.get(factId);
                     return (
                         <Box component="details" key={factId} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, px: 1.5, py: 1 }}>
-                            <Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>{fact?.label ?? factId}</Box>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Fact ID: {factId}</Typography>
+                            <Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>{displayLabel(fact?.label ?? factId)}</Box>
                             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                                {fact?.value ?? 'The referenced fact was unavailable in this response.'}
+                                {displayValue(fact?.value ?? 'The referenced fact was unavailable in this response.')}
                             </Typography>
                         </Box>
                     );
@@ -99,9 +136,9 @@ function BriefingDraft({ draft, filtersApplied }: { draft: SnapshotReportDraft; 
                     </Box>
                 </Box>
                 <Grid container spacing={2} sx={{ mt: 1 }}>
-                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Status</Typography><Typography variant="body2">{draft.status}</Typography></Grid>
+                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Status</Typography><Typography variant="body2">{displayLabel(draft.status)}</Typography></Grid>
                     <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">As-of week</Typography><Typography variant="body2">{draft.as_of_week}</Typography></Grid>
-                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Logic version</Typography><Typography variant="body2">{draft.logic_version}</Typography></Grid>
+                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Logic version</Typography><Typography variant="body2">{displayValue(draft.logic_version)}</Typography></Grid>
                     <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Drafting model</Typography><Typography variant="body2">{draft.generated_by_model}</Typography></Grid>
                 </Grid>
             </Brand.Card>
@@ -127,7 +164,7 @@ function BriefingDraft({ draft, filtersApplied }: { draft: SnapshotReportDraft; 
             <Brand.Card bordered="outlined">
                 <Typography variant="h6">Scope and limitations</Typography>
                 <Box component="ul" sx={{ m: 0, mt: 1.25, pl: 2.5 }}>
-                    {[...draft.disclaimers, ...BASE_LIMITATIONS].map((limitation) => <li key={limitation}><Typography variant="body2">{limitation}</Typography></li>)}
+                    {[...draft.disclaimers, ...BASE_LIMITATIONS].map((limitation) => <li key={limitation}><Typography variant="body2">{displayLabel(limitation)}</Typography></li>)}
                 </Box>
             </Brand.Card>
 
@@ -141,46 +178,102 @@ function BriefingDraft({ draft, filtersApplied }: { draft: SnapshotReportDraft; 
     );
 }
 
-const REVIEW_CHOICES: Array<{ value: InsightDisposition; label: string }> = [
-    { value: 'VALIDATED', label: 'Validate' }, { value: 'REJECTED', label: 'Reject / exclude' },
-    { value: 'REVISED', label: 'Revise' }, { value: 'DUPLICATE', label: 'Duplicate / exclude' },
-    { value: 'ADDITIONAL_EVIDENCE_REQUIRED', label: 'Request evidence' },
-];
-
 function ReviewPacket({ packet, onUpdate }: { packet: ReportReviewPacket; onUpdate: (next: ReportReviewPacket) => void }) {
-    const [selection, setSelection] = React.useState<Record<string, InsightDisposition>>({});
+    return <AllInsightsReview packet={packet} onUpdate={onUpdate} />;
+    /* Legacy single-insight wizard retained below temporarily for a small, safe diff.
+    const [pendingActions, setPendingActions] = React.useState<Record<string, InsightDisposition | undefined>>({});
     const [rationales, setRationales] = React.useState<Record<string, string>>({});
     const [busy, setBusy] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
-    const decide = async (insightId: string) => {
-        const rationale = rationales[insightId]?.trim();
-        if (!rationale) { setError('Add a reviewer rationale before recording a decision.'); return; }
+    const decide = async (insightId: string, disposition: InsightDisposition) => {
+        const rationale = rationales[insightId]?.trim() ?? '';
+        if (disposition !== 'VALIDATED' && !rationale) { setError('Please add a short reason for this decision.'); return; }
         setBusy(insightId); setError(null);
-        try { onUpdate(await reviewReportInsight(packet.report_id, insightId, { disposition: selection[insightId] ?? 'VALIDATED', rationale })); }
+        try {
+            onUpdate(await reviewReportInsight(packet.report_id, insightId, { disposition, rationale: rationale || undefined }));
+            setRationales((current) => ({ ...current, [insightId]: '' }));
+            setPendingActions((current) => ({ ...current, [insightId]: undefined }));
+        }
         catch (err) { setError(err instanceof AnalyticsApiError ? err.message : 'Unable to record review decision.'); }
         finally { setBusy(null); }
     };
     const { readiness } = packet;
+    const reviewProgress = readiness.total_material ? ((readiness.validated + readiness.excluded) / readiness.total_material) * 100 : 0;
+    return <Grid container spacing={2.5} sx={{ alignItems: 'flex-start' }}>
+        <Grid item xs={12} md={3}>
+            <Brand.Card bordered="outlined" sx={{ position: { md: 'sticky' }, top: { md: 20 }, p: 0, overflow: 'hidden', borderColor: 'divider' }}>
+                <Box sx={{ px: 2.25, py: 2, bgcolor: '#f5f8fc', borderBottom: '1px solid', borderColor: 'divider' }}><Typography variant="overline" color="primary.main">Report process</Typography><Typography variant="h6">Sanford review</Typography></Box>
+                <Box sx={{ p: 1 }}>{[
+                    ['Briefing', 'Complete', '✓'],
+                    ['Insight review', `${readiness.total_material - readiness.pending} / ${readiness.total_material} decided`, readiness.pending ? '•' : '✓'],
+                    ['Evidence', 'Aggregate facts cited', '✓'],
+                    ['Export', readiness.ready ? 'Ready' : `${readiness.pending} decision(s) needed`, readiness.ready ? '✓' : '•'],
+                ].map(([name, detail, mark], index) => <Box key={name} sx={{ display: 'flex', gap: 1.25, px: 1.25, py: 1.2, borderRadius: 1.5, bgcolor: index === 1 ? '#eaf2ff' : 'transparent' }}><Box sx={{ width: 22, height: 22, borderRadius: '50%', bgcolor: index === 1 ? 'primary.main' : mark === '✓' ? 'success.light' : 'warning.light', color: index === 1 ? 'common.white' : 'text.primary', display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 700 }}>{mark}</Box><Box><Typography variant="body2" fontWeight={700}>{name}</Typography><Typography variant="caption" color="text.secondary">{detail}</Typography></Box></Box>)}</Box>
+                <Box sx={{ px: 2.25, pb: 2 }}><Box sx={{ height: 6, borderRadius: 99, bgcolor: 'grey.200', overflow: 'hidden' }}><Box sx={{ width: `${reviewProgress}%`, height: '100%', bgcolor: 'primary.main', transition: 'width 200ms' }} /></Box><Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>{readiness.validated + readiness.excluded} of {readiness.total_material} decisions recorded</Typography></Box>
+            </Brand.Card>
+        </Grid>
+        <Grid item xs={12} md={9}><Box sx={{ display: 'grid', gap: 2 }}>
+            <Brand.Card bordered="outlined" sx={{ bgcolor: '#fbfcfe' }}><Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}><Box><Typography variant="h5">AI PSA account review</Typography><Typography variant="body2" color="text.secondary">{packet.client_account ?? 'General snapshot'} · as of {packet.as_of_week}</Typography></Box><Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Chip label="Cited" color="primary" variant="outlined" /><Brand.Button component="a" href={reportExportUrl(packet.report_id, 'DRAFT_HTML')} target="_blank" variant="secondary">Draft HTML</Brand.Button><Brand.Button component="a" href={readiness.ready ? reportExportUrl(packet.report_id, 'REVIEWED_HTML') : undefined} disabled={!readiness.ready}>Reviewed export</Brand.Button></Box></Box></Brand.Card>
+            {activeInsight && <Brand.Card bordered="outlined" sx={{ display: 'grid', gap: 2.25, borderColor: '#cbd9ec' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}><Box><Typography variant="overline" color="primary.main">Insight {activeInsight.sequence} of {packet.insights.length}</Typography><Typography variant="h5">{activeInsight.title}</Typography></Box><Chip label={activeInsight.current_disposition.replaceAll('_', ' ')} color={activeInsight.current_disposition === 'VALIDATED' ? 'success' : activeInsight.current_disposition === 'PENDING' ? 'warning' : 'default'} /></Box>
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.75, fontSize: '1.02rem' }}>{activeInsight.body}</Typography><Divider />
+                <Box><Typography variant="subtitle2">Cited evidence</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>These are the aggregate facts used to create this candidate insight.</Typography>{activeInsight.citations.map((citation) => <Box key={citation.citation_id} sx={{ mt: 0.75, px: 1.25, py: 1, borderRadius: 1, bgcolor: '#f6f9fd', borderLeft: '3px solid', borderColor: 'primary.light' }}><Typography variant="caption" color="primary.main" fontWeight={700}>{citation.source_locator}</Typography><Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{citation.excerpt}</Typography></Box>)}</Box>
+                <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}><Typography variant="subtitle2">Decision</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, mb: 1.25 }}>Approve is immediate. Other decisions require a short explanation.</Typography><Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Brand.Button onClick={() => decide('VALIDATED')} disabled={busy === activeInsight.insight_id}>{busy === activeInsight.insight_id ? 'Saving...' : 'Approve insight'}</Brand.Button><Brand.Button variant="secondary" onClick={() => setPendingAction('REJECTED')}>Decline</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingAction('REVISED')}>Revise</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingAction('ADDITIONAL_EVIDENCE_REQUIRED')}>Need evidence</Brand.Button></Box>{pendingAction && <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap', alignItems: 'center' }}><TextField size="small" autoFocus required label="Reason for this decision" value={rationale} onChange={(event) => setRationale(event.target.value)} sx={{ minWidth: 300, flex: 1 }} /><Brand.Button onClick={() => decide(pendingAction)} disabled={busy === activeInsight.insight_id}>Confirm {pendingAction === 'REJECTED' ? 'decline' : pendingAction === 'REVISED' ? 'revision' : 'evidence request'}</Brand.Button><Brand.Button variant="tertiary" onClick={() => { setPendingAction(null); setRationale(''); }}>Cancel</Brand.Button></Box>}</Box>
+                {error && <Typography color="error" role="alert">{error}</Typography>}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}><Brand.Button variant="tertiary" onClick={() => setActiveIndex(Math.max(0, activeIndex - 1))} disabled={activeIndex === 0}>Previous</Brand.Button><Brand.Button variant="tertiary" onClick={() => setActiveIndex(Math.min(packet.insights.length - 1, activeIndex + 1))} disabled={activeIndex === packet.insights.length - 1}>Next insight</Brand.Button></Box>
+            </Brand.Card>}
+        </Box></Grid>
+    </Grid>;
+    */
+}
+
+function AllInsightsReview({ packet, onUpdate }: { packet: ReportReviewPacket; onUpdate: (next: ReportReviewPacket) => void }) {
+    const [pendingActions, setPendingActions] = React.useState<Record<string, InsightDisposition | undefined>>({});
+    const [rationales, setRationales] = React.useState<Record<string, string>>({});
+    const [busy, setBusy] = React.useState<string | null>(null);
+    const [error, setError] = React.useState<string | null>(null);
+    const { readiness } = packet;
+    const reviewProgress = readiness.total_material ? ((readiness.validated + readiness.excluded) / readiness.total_material) * 100 : 0;
+
+    const decide = async (insightId: string, disposition: InsightDisposition) => {
+        const rationale = rationales[insightId]?.trim() ?? '';
+        if (disposition !== 'VALIDATED' && !rationale) { setError('Please add a short reason for this decision.'); return; }
+        setBusy(insightId); setError(null);
+        try {
+            onUpdate(await reviewReportInsight(packet.report_id, insightId, { disposition, rationale: rationale || undefined }));
+            setRationales((current) => ({ ...current, [insightId]: '' }));
+            setPendingActions((current) => ({ ...current, [insightId]: undefined }));
+        } catch (err) {
+            setError(err instanceof AnalyticsApiError ? err.message : 'Unable to record review decision.');
+        } finally {
+            setBusy(null);
+        }
+    };
+
     return <Box sx={{ display: 'grid', gap: 2 }}>
         <Brand.Card bordered="outlined" sx={{ borderLeft: '5px solid', borderLeftColor: readiness.ready ? 'success.main' : 'warning.main' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-                <Box><Typography variant="h5">Insight review and download gate</Typography><Typography variant="body2" color="text.secondary">Review decisions are stored locally with a development actor label until production authentication is connected.</Typography></Box>
+                <Box><Typography variant="h5">Briefing review and export</Typography><Typography variant="body2" color="text.secondary">Each decision is stored separately with the local development reviewer label.</Typography></Box>
                 <Chip label={readiness.ready ? 'Reviewed export ready' : `${readiness.pending} material insight(s) pending`} color={readiness.ready ? 'success' : 'warning'} />
             </Box>
             <Grid container spacing={2} sx={{ mt: 1 }}>
-                {[['Material', readiness.total_material], ['Validated', readiness.validated], ['Excluded', readiness.excluded], ['Pending', readiness.pending]].map(([label, value]) => <Grid item xs={6} md={3} key={String(label)}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="h6">{value}</Typography></Grid>)}
+                {[['Material insights', readiness.total_material], ['Validated', readiness.validated], ['Excluded', readiness.excluded], ['Pending', readiness.pending]].map(([label, value]) => <Grid item xs={6} md={3} key={String(label)}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="h6">{value}</Typography></Grid>)}
             </Grid>
-            <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
-                <Brand.Button component="a" href={reportExportUrl(packet.report_id, 'DRAFT_HTML')} target="_blank" variant="secondary">Download labelled draft</Brand.Button>
-                <Brand.Button component="a" href={readiness.ready ? reportExportUrl(packet.report_id, 'REVIEWED_HTML') : undefined} disabled={!readiness.ready}>Download reviewed report</Brand.Button>
-            </Box>
+            <Box sx={{ height: 6, borderRadius: 99, bgcolor: 'grey.200', overflow: 'hidden', mt: 2 }}><Box sx={{ width: `${reviewProgress}%`, height: '100%', bgcolor: 'primary.main', transition: 'width 200ms' }} /></Box>
+            <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}><Brand.Button component="a" href={reportExportUrl(packet.report_id, 'DRAFT_HTML')} target="_blank" variant="secondary" sx={REPORT_ACTION_SX}>Draft HTML</Brand.Button><Brand.Button component="a" href={readiness.ready ? reportExportUrl(packet.report_id, 'REVIEWED_HTML') : undefined} disabled={!readiness.ready} sx={REPORT_ACTION_SX}>Reviewed export</Brand.Button></Box>
         </Brand.Card>
         {error && <Typography color="error" role="alert">{error}</Typography>}
-        {packet.insights.map((insight) => <Brand.Card key={insight.insight_id} bordered="outlined" sx={{ display: 'grid', gap: 1.25 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}><Box><Typography variant="h6">{insight.sequence}. {insight.title}</Typography><Typography variant="body2" sx={{ mt: 0.75, whiteSpace: 'pre-wrap' }}>{insight.body}</Typography></Box><Chip size="small" label={insight.current_disposition.replaceAll('_', ' ')} /></Box>
-            <Divider /><Box><Typography variant="caption" color="text.secondary">Cited evidence</Typography>{insight.citations.map((citation) => <Box key={citation.citation_id} sx={{ mt: 0.5, pl: 1, borderLeft: '3px solid', borderColor: 'divider' }}><Typography variant="caption">{citation.source_type} · {citation.source_locator}</Typography><Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{citation.excerpt}</Typography></Box>)}</Box>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}><TextField select size="small" label="Disposition" value={selection[insight.insight_id] ?? 'VALIDATED'} onChange={(event) => setSelection({ ...selection, [insight.insight_id]: event.target.value as InsightDisposition })} sx={{ minWidth: 210 }}>{REVIEW_CHOICES.map((choice) => <MenuItem key={choice.value} value={choice.value}>{choice.label}</MenuItem>)}</TextField><TextField size="small" required label="Reviewer rationale" value={rationales[insight.insight_id] ?? ''} onChange={(event) => setRationales({ ...rationales, [insight.insight_id]: event.target.value })} sx={{ minWidth: 280, flex: 1 }} /><Brand.Button onClick={() => decide(insight.insight_id)} disabled={busy === insight.insight_id}>{busy === insight.insight_id ? 'Recording...' : 'Record decision'}</Brand.Button></Box>
-        </Brand.Card>)}
+        {packet.insights.map((insight) => {
+            const pendingAction = pendingActions[insight.insight_id];
+            const rationale = rationales[insight.insight_id] ?? '';
+            return <Brand.Card key={insight.insight_id} bordered="outlined" sx={{ display: 'grid', gap: 2, borderColor: '#cbd9ec' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}><Box><Typography variant="overline" color="primary.main">Insight {insight.sequence} of {packet.insights.length}</Typography><Typography variant="h5">{displayLabel(insight.title)}</Typography></Box><Chip label={displayLabel(insight.current_disposition)} color={insight.current_disposition === 'VALIDATED' ? 'success' : insight.current_disposition === 'PENDING' ? 'warning' : 'default'} /></Box>
+                <NarrativeText text={insight.body} />
+                <Divider />
+                <Box><Typography variant="subtitle2">Cited evidence</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>These aggregate facts support this candidate insight.</Typography>{insight.citations.map((citation) => <Box key={citation.citation_id} sx={{ mt: 0.75, px: 1.25, py: 1, borderRadius: 1, bgcolor: '#f6f9fd', borderLeft: '3px solid', borderColor: 'primary.light' }}><Typography variant="caption" color="primary.main" fontWeight={700}>{displayLabel(citation.source_locator)}</Typography><Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{displayValue(citation.excerpt)}</Typography></Box>)}</Box>
+                <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}><Typography variant="subtitle2">Decision</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, mb: 1.25 }}>Approval is immediate. Other decisions require a short explanation.</Typography><Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Brand.Button onClick={() => decide(insight.insight_id, 'VALIDATED')} disabled={busy === insight.insight_id} sx={REPORT_ACTION_SX}>{busy === insight.insight_id ? 'Saving...' : 'Approve insight'}</Brand.Button><Brand.Button variant="secondary" onClick={() => setPendingActions((current) => ({ ...current, [insight.insight_id]: 'REJECTED' }))} sx={REPORT_ACTION_SX}>Decline</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingActions((current) => ({ ...current, [insight.insight_id]: 'REVISED' }))} sx={REPORT_ACTION_SX}>Revise</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingActions((current) => ({ ...current, [insight.insight_id]: 'ADDITIONAL_EVIDENCE_REQUIRED' }))} sx={REPORT_ACTION_SX}>Need evidence</Brand.Button></Box>{pendingAction && <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap', alignItems: 'center' }}><TextField size="small" autoFocus required label="Reason for this decision" value={rationale} onChange={(event) => setRationales((current) => ({ ...current, [insight.insight_id]: event.target.value }))} sx={{ minWidth: 300, flex: 1 }} /><Brand.Button onClick={() => decide(insight.insight_id, pendingAction)} disabled={busy === insight.insight_id} sx={REPORT_ACTION_SX}>Confirm {pendingAction === 'REJECTED' ? 'decline' : pendingAction === 'REVISED' ? 'revision' : 'evidence request'}</Brand.Button><Brand.Button variant="tertiary" onClick={() => { setPendingActions((current) => ({ ...current, [insight.insight_id]: undefined })); setRationales((current) => ({ ...current, [insight.insight_id]: '' })); }} sx={REPORT_ACTION_SX}>Cancel</Brand.Button></Box>}</Box>
+            </Brand.Card>;
+        })}
     </Box>;
 }
 
@@ -220,9 +313,9 @@ function ReportsContent() {
     return (
         <Box sx={{ display: 'grid', gap: 3, maxWidth: 1120 }}>
             <Box>
-                <Typography variant="h4" component="h1">Fast Facts briefing</Typography>
+                <Typography variant="h4" component="h1">Snapshot operational briefing</Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ mt: 0.75, maxWidth: 780 }}>
-                    Create a concise, fact-referenced snapshot briefing to focus a human review. Generated content is always a draft and is not ready for distribution.
+                    Create a fact-referenced operational briefing for a selected snapshot. It identifies review priorities from supported aggregates and remains a draft until reviewed.
                 </Typography>
             </Box>
 
@@ -237,18 +330,18 @@ function ReportsContent() {
                     <Box sx={{ minWidth: 220 }}><WeekSelect /></Box>
                     <QueryTextFilter label="Client account" paramKey="client_account" />
                     <QueryTextFilter label="Category" paramKey="category" />
-                    <Brand.Button onClick={handleGenerate} disabled={loading}>{loading ? 'Building draft...' : 'Build Fast Facts draft'}</Brand.Button>
+                    <Brand.Button onClick={handleGenerate} loading={loading} sx={REPORT_ACTION_SX}>{loading ? 'Creating briefing...' : 'Create briefing'}</Brand.Button>
                 </Box>
             </Brand.Card>
 
-            {loading && <Typography aria-live="polite">Building the fact-referenced briefing draft...</Typography>}
+            {loading && <Typography aria-live="polite">Creating the fact-referenced operational briefing...</Typography>}
             {error && <Brand.Card bordered="outlined" role="alert"><Typography color="error">{error}</Typography></Brand.Card>}
 
             {reviewPacket ? <ReviewPacket packet={reviewPacket} onUpdate={setReviewPacket} /> : draft ? <BriefingDraft draft={draft} filtersApplied={filtersApplied} /> : !loading && !error && (
                 <Brand.Card bordered="outlined">
                     <Typography variant="h6">What this produces</Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                        A persisted local review packet with cited candidate insights, immutable review decisions, approval counts, and gated HTML exports.
+                        A persisted local review packet with an executive snapshot, evidence-backed review priorities, immutable review decisions, approval counts, and gated HTML exports.
                     </Typography>
                 </Brand.Card>
             )}

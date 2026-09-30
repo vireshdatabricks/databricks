@@ -1,10 +1,14 @@
 import MuiButton, { ButtonProps as MuiButtonProps } from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import OptumTheme from '../../../utils/theme';
 
-type ButtonVariant = 'primary' | 'secondary' | 'tertiary';
+type ButtonVariant = 'primary' | 'secondary' | 'tertiary' | 'destructive';
+type ButtonSize = 'regular' | 'compact';
 
-interface ButtonProps extends Omit<MuiButtonProps, 'color' | 'variant'> {
+interface ButtonProps extends Omit<MuiButtonProps, 'color' | 'variant' | 'size'> {
     variant?: ButtonVariant;
+    size?: ButtonSize;
+    loading?: boolean;
 }
 
 const { brand } = OptumTheme.palette;
@@ -50,18 +54,39 @@ const variantStyles = {
         },
     },
     tertiary: {
-        backgroundColor: brand.white,
-        color: brand.shark,
-        border: `1px solid ${brand.shark}`,
+        backgroundColor: 'transparent',
+        color: brand.hyperlink,
+        border: '1px solid transparent',
         boxShadow: 'none',
         '&:hover': {
-            backgroundColor: brand.warmWhite,
-            borderColor: brand.shark,
+            backgroundColor: brand.informationLight,
+            borderColor: 'transparent',
             boxShadow: 'none',
         },
         '&:active': {
-            backgroundColor: brand.haze,
-            borderColor: brand.shark,
+            backgroundColor: brand.skyBlue,
+            borderColor: 'transparent',
+            boxShadow: 'none',
+        },
+        '&.Mui-disabled': {
+            backgroundColor: 'transparent',
+            borderColor: 'transparent',
+            color: brand.slate,
+        },
+    },
+    destructive: {
+        backgroundColor: brand.white,
+        color: brand.danger,
+        border: `1px solid ${brand.danger}`,
+        boxShadow: 'none',
+        '&:hover': {
+            backgroundColor: brand.dangerLight,
+            borderColor: brand.danger,
+            boxShadow: 'none',
+        },
+        '&:active': {
+            backgroundColor: '#F6D7D7',
+            borderColor: brand.danger,
             boxShadow: 'none',
         },
         '&.Mui-disabled': {
@@ -72,12 +97,29 @@ const variantStyles = {
     },
 };
 
-const Button = ({ variant = 'primary', sx, ...props }: ButtonProps) => (
+const sizeStyles: Record<ButtonSize, { minHeight: number; padding: string }> = {
+    regular: { minHeight: 44, padding: '12px 20px' },
+    compact: { minHeight: 36, padding: '8px 12px' },
+};
+
+const Button = ({
+    variant = 'primary',
+    size = 'regular',
+    loading = false,
+    disabled,
+    sx,
+    children,
+    startIcon,
+    ...props
+}: ButtonProps) => (
     <MuiButton
         variant="contained"
+        disabled={disabled || loading}
+        aria-busy={loading || undefined}
+        startIcon={loading ? <CircularProgress size={16} color="inherit" aria-hidden="true" /> : startIcon}
         sx={[
             {
-                padding: '12px 24px',
+                ...sizeStyles[size],
                 borderRadius: '999px',
                 fontWeight: 700,
                 ...variantStyles[variant],
@@ -85,7 +127,9 @@ const Button = ({ variant = 'primary', sx, ...props }: ButtonProps) => (
             ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
         ]}
         {...props}
-    />
+    >
+        {children}
+    </MuiButton>
 );
 
 export default Button;

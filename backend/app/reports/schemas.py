@@ -37,7 +37,7 @@ class SnapshotReportDraft(BaseModel):
 
 class ReviewDecisionRequest(BaseModel):
     disposition: Literal["VALIDATED", "REJECTED", "REVISED", "DUPLICATE", "ADDITIONAL_EVIDENCE_REQUIRED"]
-    rationale: str
+    rationale: str = ""
     revision_text: str | None = None
 
 

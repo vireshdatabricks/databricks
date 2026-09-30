@@ -6,27 +6,20 @@ Databricks access, or case-level narrative unless the caller is evidence-authori
 from __future__ import annotations
 
 import json
-import re
 from datetime import date
 from typing import Any
 
 from app.analytics import service as analytics_service
-from app.core.ai_gateway_client import LocalOpenAIClient, build_client
 from app.core.config import settings
-from app.core.exceptions import BadRequestError, ServiceUnavailableError
+from app.core.exceptions import BadRequestError
 from app.reports.schemas import ReportFact, ReportSection, SnapshotReportDraft, SnapshotReportRequest
 from app.reports import workflow
 
 REPORT_DISCLAIMERS = [
-    "SYSTEM_GENERATED_DRAFT: not a validated finding; requires human review before distribution.",
-    "Limited to the weekly snapshot CSV extract; no event-history, SLA/PG, or recurrence-validation source.",
-    "Does not claim validated root cause, action completion, outcome, financial benefit, or SLA/PG compliance.",
+    "Draft for human review. Reviewer validation is required before distribution.",
+    "Limited to the selected weekly snapshot. Event history, SLA and performance-guarantee sources, and recurrence validation are unavailable.",
+    "This briefing does not establish root cause, completed action, outcome, financial benefit, or contractual compliance.",
 ]
-
-LOCAL_TEST_DISCLAIMER = (
-    "LOCAL_TEST_ONLY: generated through a developer-configured external model endpoint; "
-    "do not distribute or use as a production artifact."
-)
 
 # Deterministic rejection: any of these phrases in model output fails validation outright.
 FORBIDDEN_CLAIM_PATTERNS = [
@@ -45,7 +38,8 @@ _SYSTEM_PROMPT = (
     "sections that cite only exact fact_id values present in the package. Never invent numbers, cases, "
     "causes, or outcomes absent from the facts. Never state validated root cause, action completion, "
     "confirmed outcome, financial benefit, or SLA/PG compliance. Always write as a system-generated "
-    "draft that requires human review. Return JSON only: {\"sections\": [{\"heading\": str, \"body\": str, "
+    "draft that requires human review. Write each body as short paragraphs separated by blank lines; use simple "
+    "hyphen-led lines only for a genuine list. Return JSON only: {\"sections\": [{\"heading\": str, \"body\": str, "
     "\"fact_ids\": [str]}]}."
 )
 
@@ -105,37 +99,108 @@ def _build_fact_package(
             )
         )
 
-    trends_body = analytics_service.list_case_trends(resolved_week, client_account, category, None, None, None, 50, None)
-    facts.extend(
-        ReportFact(fact_id=f"case_trend.{index}", label=f"{row.get('report_month')} case trend", value=json.dumps(row))
-        for index, row in enumerate(trends_body["data"])
-    )
-
-    themes_body = analytics_service.list_themes(resolved_week, category, None, None, 20, None)
-    facts.extend(
-        ReportFact(fact_id=f"theme.{index}", label=row.get("theme_label", ""), value=json.dumps(row))
-        for index, row in enumerate(themes_body["data"])
-    )
-
     return resolved_week, facts
 
 
-def _validate_draft(raw: dict[str, Any], allowed_fact_ids: set[str]) -> dict[str, Any]:
-    sections = raw.get("sections")
-    if not isinstance(sections, list) or not sections:
-        raise BadRequestError("AI gateway response was missing a non-empty 'sections' array.")
+def _fact_value(facts: dict[str, ReportFact], fact_id: str, default: str = "not available") -> str:
+    fact = facts.get(fact_id)
+    return fact.value if fact else default
 
-    for section in sections:
-        fact_ids = section.get("fact_ids") or []
-        if not fact_ids:
-            raise BadRequestError("AI gateway response contained a section with no cited fact_ids.")
-        section["fact_ids"] = [_resolve_fact_id(fact_id, allowed_fact_ids) for fact_id in fact_ids]
-        combined_text = f"{section.get('heading', '')} {section.get('body', '')}"
-        for pattern in FORBIDDEN_CLAIM_PATTERNS:
-            if re.search(pattern, combined_text, flags=re.IGNORECASE):
-                raise BadRequestError(f"AI gateway response contained a disallowed claim: {pattern}")
 
-    return raw
+def _int_value(value: str) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _top_label(value: str) -> tuple[str, int] | None:
+    try:
+        rows = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        return None
+    label = rows[0].get("label")
+    if not label:
+        return None
+    return str(label), _int_value(str(rows[0].get("count"))) or 0
+
+
+def _distribution_sentence(value: str) -> str:
+    """Render aggregate label/count arrays without leaking serialized JSON."""
+    try:
+        rows = json.loads(value)
+    except json.JSONDecodeError:
+        return "not available"
+    if not isinstance(rows, list):
+        return "not available"
+    entries = [
+        f"{_int_value(str(row.get('count'))) or 0:,} {str(row.get('label') or 'unknown').replace('_', ' ')}"
+        for row in rows if isinstance(row, dict)
+    ]
+    return "; ".join(entries) if entries else "not available"
+
+
+def _deterministic_sections(resolved_week: date, facts: list[ReportFact]) -> list[ReportSection]:
+    """Build a factual briefing without relying on generic model prose.
+
+    Snapshot aggregates can support review priorities, not causal or contractual
+    findings.  This controlled template keeps those boundaries visible.
+    """
+    values = {fact.fact_id: fact for fact in facts}
+    total_cases = _fact_value(values, "summary.total_case_count")
+    open_cases = _fact_value(values, "summary.open_case_count")
+    closed_cases = _fact_value(values, "summary.closed_case_count")
+    total_tasks = _fact_value(values, "summary.total_task_count")
+    open_tasks = _fact_value(values, "summary.open_task_count")
+    overdue_cases = _fact_value(values, "operations.date_risk.overdue_case_count")
+    usable_risk_dates = _fact_value(values, "operations.date_risk.usable_risk_date_count")
+    oldest_age = _fact_value(values, "operations.workload.oldest_age_calendar_days")
+    documentation = _distribution_sentence(_fact_value(values, "operations.documentation.documentation_status_counts", "[]"))
+    assignment_fact = "operations.workload.assignment_group_counts"
+    assignment_top = _top_label(_fact_value(values, assignment_fact, "[]"))
+    assignment_sentence = (
+        f"The largest represented assignment group is {assignment_top[0]} with {assignment_top[1]:,} cases."
+        if assignment_top else "Assignment-group concentration is not available for this scope."
+    )
+
+    return [
+        ReportSection(
+            heading="Executive snapshot",
+            body=(
+                f"As of {resolved_week.isoformat()}, this selected snapshot contains {total_cases} cases and {total_tasks} tasks. "
+                f"{open_cases} cases and {open_tasks} tasks are open; {closed_cases} cases are closed.\n\n"
+                "Use this briefing to focus the next operational review. It is a current-state snapshot, not a measure of trend, contractual performance, or root cause."
+            ),
+            fact_ids=["summary.total_case_count", "summary.total_task_count", "summary.open_case_count", "summary.open_task_count", "summary.closed_case_count"],
+        ),
+        ReportSection(
+            heading="Priority review 1: open cases with an operational date risk",
+            body=(
+                f"{overdue_cases} open cases are currently classified as overdue by the available operational date proxy, out of {usable_risk_dates} cases with a usable reference date.\n\n"
+                "Review the open-case list and its reference dates first. This is not an SLA or performance-guarantee determination."
+            ),
+            fact_ids=["operations.date_risk.overdue_case_count", "operations.date_risk.usable_risk_date_count", "operations.date_risk.open_case_count"],
+        ),
+        ReportSection(
+            heading="Priority review 2: workload ownership and age",
+            body=(
+                f"The oldest valid open-case age is {oldest_age} calendar days. {assignment_sentence}\n\n"
+                "Confirm ownership and the next update for the oldest open cases before drawing conclusions about operational performance."
+            ),
+            fact_ids=["operations.workload.oldest_age_calendar_days", assignment_fact, "operations.workload.open_case_count"],
+        ),
+        ReportSection(
+            heading="Priority review 3: documentation and data confidence",
+            body=(
+                "Documentation status is a field-presence proxy, not a quality or completeness judgment. "
+                f"The current distribution is: {documentation}.\n\n"
+                "Use the data-confidence appendix before acting on any aggregate finding that depends on missing fields."
+            ),
+            fact_ids=["operations.documentation.documentation_status_counts", "operations.documentation.missing_root_cause_count", "operations.documentation.missing_resolution_count", "operations.data_quality.quality_status_counts"],
+        ),
+    ]
 
 
 def generate_snapshot_report_draft(request: SnapshotReportRequest) -> SnapshotReportDraft:
@@ -144,56 +209,17 @@ def generate_snapshot_report_draft(request: SnapshotReportRequest) -> SnapshotRe
         # Reject caller-declared authorization rather than treating a UI toggle as proof.
         raise BadRequestError("Case-level evidence is unavailable until authenticated authorization is implemented.")
 
-    client = build_client()
-    if client is None:
-        raise ServiceUnavailableError(
-            "AI gateway is not configured. Configure the approved AI gateway, or enable the explicit local test "
-            "path with REPORT_LOCAL_TEST_ENABLED plus OPENAI_API_KEY."
-        )
-
     resolved_week, facts = _build_fact_package(request.as_of_week, request.client_account, request.category)
-    allowed_fact_ids = {fact.fact_id for fact in facts}
-
-    user_payload = {
-        "as_of_week": resolved_week.isoformat(),
-        "evidence_authorized": False,
-        "facts": [fact.model_dump() for fact in facts],
-        "instructions": [
-            "Cite only fact_id values present in the facts array.",
-            "Do not include case numbers or static narrative unless evidence_authorized is true.",
-            "Every section must include at least one fact_id.",
-            "Do not state validated root cause, completion, outcome, financial benefit, or SLA/PG compliance.",
-        ],
-    }
-
-    if isinstance(client, LocalOpenAIClient):
-        content = client.generate_json(
-            _SYSTEM_PROMPT,
-            json.dumps(user_payload, ensure_ascii=True),
-        )
-    else:
-        response = client.chat.completions.create(
-            model=settings.aoai_deployment,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=True)},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
-            timeout=60,
-        )
-        content = response.choices[0].message.content or "{}"
-    raw = json.loads(content)
-    validated = _validate_draft(raw, allowed_fact_ids)
+    sections = _deterministic_sections(resolved_week, facts)
 
     return SnapshotReportDraft(
-        status="SYSTEM_GENERATED_DRAFT",
+        status="DRAFT_REQUIRES_REVIEW",
         as_of_week=resolved_week,
         logic_version=settings.logic_version,
-        generated_by_model=settings.openai_model if settings.report_local_test_enabled else settings.aoai_deployment,
-        sections=[ReportSection(**section) for section in validated["sections"]],
+        generated_by_model="Deterministic snapshot briefing template",
+        sections=sections,
         facts=facts,
-        disclaimers=REPORT_DISCLAIMERS + ([LOCAL_TEST_DISCLAIMER] if settings.report_local_test_enabled else []),
+        disclaimers=REPORT_DISCLAIMERS,
     )
 
 

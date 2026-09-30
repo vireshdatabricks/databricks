@@ -35,9 +35,10 @@ def get_snapshot_review(report_id: str):
 
 @router.post("/{report_id}/insights/{insight_id}/reviews")
 def post_insight_review(report_id: str, insight_id: str, request: ReviewDecisionRequest, x_report_reviewer: str | None = Header(default=None)):
-    if not request.rationale.strip():
-        raise HTTPException(status_code=422, detail="A reviewer rationale is required.")
-    report = decide_insight(settings.report_workflow_db_path, report_id, insight_id, _actor(x_report_reviewer), request.disposition, request.rationale.strip(), request.revision_text)
+    rationale = request.rationale.strip()
+    if request.disposition != "VALIDATED" and not rationale:
+        raise HTTPException(status_code=422, detail="A reviewer rationale is required for this decision.")
+    report = decide_insight(settings.report_workflow_db_path, report_id, insight_id, _actor(x_report_reviewer), request.disposition, rationale or "Approved without comment.", request.revision_text)
     if report is None:
         raise HTTPException(status_code=404, detail="Candidate insight was not found in this report.")
     return report

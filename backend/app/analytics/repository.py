@@ -330,7 +330,8 @@ def get_case_fact(case_number: str, as_of_week: date) -> dict | None:
 
 def list_narrative_segments(case_number: str) -> list[dict]:
     query = f"""
-        SELECT segment_id, record_level, task_number, segment_type, segment_timestamp, segment_text, source_column
+        SELECT segment_id, record_level, task_number, segment_type, segment_timestamp, segment_text, source_column,
+               source_file, extract_week
         FROM {_table(NARRATIVE_SEGMENTS)}
         WHERE case_number = :case_number
         ORDER BY segment_timestamp

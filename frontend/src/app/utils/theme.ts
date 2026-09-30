@@ -58,6 +58,10 @@ declare module '@mui/material/styles' {
 }
 
 const OptumTheme = createTheme({
+    spacing: 4,
+    shape: {
+        borderRadius: 8,
+    },
     palette: {
         brand: {
             optumOrange: '#FF612B',
@@ -87,19 +91,39 @@ const OptumTheme = createTheme({
     },
     typography: {
         fontFamily: "'Enterprise Sans', Arial, sans-serif",
-        caption: { fontSize: '14px' },
-        button: { fontSize: '16px', textTransform: 'none' },
-        h1: { fontSize: '36.48px', fontWeight: 700, color: '#002677', lineHeight: '48px' },
-        h2: { fontSize: '32.43px', fontWeight: 700, color: '#002677', lineHeight: '40px' },
-        h3: { fontSize: '28.83px', fontWeight: 700, color: '#002677', lineHeight: '36px' },
-        h4: { fontSize: '24.63px', fontWeight: 700, color: '#002677', lineHeight: '32px' },
-        h5: { fontSize: '22.78px', fontWeight: 700, color: '#002677', lineHeight: '28px' },
-        h6: { fontSize: '20.25px', fontWeight: 700, color: '#002677', lineHeight: '24px' },
-        subtitle1: { fontSize: '18px', lineHeight: '24px' },
-        body1: { fontSize: '16px', lineHeight: '20px' },
-        body2: { fontSize: '14.22px', lineHeight: '18px' },
-        subtitle2: { fontSize: '12.64px', lineHeight: '16px' }
-    }
+        caption: { fontSize: '12px', lineHeight: '16px' },
+        button: { fontSize: '16px', fontWeight: 700, lineHeight: '20px', textTransform: 'none' },
+        h1: { fontSize: '32px', fontWeight: 700, color: '#002677', lineHeight: '40px' },
+        h2: { fontSize: '24px', fontWeight: 700, color: '#002677', lineHeight: '32px' },
+        h3: { fontSize: '20px', fontWeight: 700, color: '#002677', lineHeight: '28px' },
+        h4: { fontSize: '18px', fontWeight: 700, color: '#002677', lineHeight: '24px' },
+        h5: { fontSize: '18px', fontWeight: 700, color: '#002677', lineHeight: '24px' },
+        h6: { fontSize: '16px', fontWeight: 700, color: '#002677', lineHeight: '24px' },
+        subtitle1: { fontSize: '16px', fontWeight: 700, lineHeight: '24px' },
+        body1: { fontSize: '16px', lineHeight: '24px' },
+        body2: { fontSize: '14px', lineHeight: '20px' },
+        subtitle2: { fontSize: '14px', fontWeight: 700, lineHeight: '20px' }
+    },
+    components: {
+        MuiButton: {
+            defaultProps: { disableElevation: true },
+            styleOverrides: {
+                root: {
+                    minHeight: 44,
+                    borderRadius: 22,
+                    '&.Mui-focusVisible': {
+                        outline: '2px solid #0C55B8',
+                        outlineOffset: 2,
+                    },
+                },
+            },
+        },
+        MuiOutlinedInput: {
+            styleOverrides: {
+                root: { minHeight: 44 },
+            },
+        },
+    },
 });
 
 export default OptumTheme;

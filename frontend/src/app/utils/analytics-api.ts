@@ -110,6 +110,8 @@ export interface NarrativeSegment {
     segment_timestamp: string | null;
     segment_text: string;
     source_column: string;
+    source_file: string | null;
+    extract_week: string | null;
 }
 
 export interface CaseDetail {
@@ -239,6 +241,89 @@ export const getThemeCases = (themeId: string, params: { as_of_week?: string; li
 export const getCase = (caseNumber: string, params: { as_of_week?: string }) =>
     getJson<Envelope<CaseDetail>>(`/cases/${encodeURIComponent(caseNumber)}`, params);
 
+export type DiagnosticDisposition = 'VALIDATED' | 'REJECTED' | 'REVISED' | 'DUPLICATE' | 'ADDITIONAL_EVIDENCE_REQUIRED';
+
+export interface DiagnosticEvidence {
+    evidence_id?: string;
+    segment_id: string;
+    record_level: string;
+    task_number: string | null;
+    segment_type: string;
+    source_column: string;
+    source_file: string | null;
+    extract_week: string | null;
+    excerpt: string;
+}
+
+export interface DiagnosticReviewDecision {
+    decision_id: string;
+    reviewer_subject: string;
+    disposition: DiagnosticDisposition;
+    rationale: string;
+    revision_text: string | null;
+    created_at: string;
+}
+
+export interface CaseDiagnostic {
+    diagnostic_id: string;
+    case_number: string;
+    as_of_week: string;
+    client_account: string | null;
+    status: string;
+    observed_issue: string;
+    candidate_contributing_factor: string;
+    detection_gap: string;
+    candidate_owner: string;
+    proposed_action: string;
+    created_by_subject: string;
+    created_at: string;
+    evidence: DiagnosticEvidence[];
+    decisions: DiagnosticReviewDecision[];
+}
+
+export interface CaseDiagnosticContext {
+    case_number: string;
+    as_of_week: string;
+    client_account: string | null;
+    evidence: DiagnosticEvidence[];
+    diagnostics: CaseDiagnostic[];
+    identity_notice: string;
+}
+
+async function diagnosticJson<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${BASE_PATH}/api/v1/diagnostics${path}`, { cache: 'no-store', ...init });
+    if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new AnalyticsApiError(body?.message ?? body?.detail ?? `Request failed with status ${response.status}`, response.status);
+    }
+    return response.json();
+}
+
+export const getCaseDiagnosticContext = (caseNumber: string, params: { as_of_week?: string }) => {
+    const query = params.as_of_week ? `?as_of_week=${encodeURIComponent(params.as_of_week)}` : '';
+    return diagnosticJson<CaseDiagnosticContext>(`/cases/${encodeURIComponent(caseNumber)}${query}`);
+};
+
+export const createCaseDiagnostic = (caseNumber: string, asOfWeek: string, request: {
+    observed_issue: string;
+    candidate_contributing_factor: string;
+    detection_gap: string;
+    candidate_owner: string;
+    proposed_action: string;
+    evidence_segment_ids: string[];
+}) => diagnosticJson<CaseDiagnostic>(`/cases/${encodeURIComponent(caseNumber)}/candidates?as_of_week=${encodeURIComponent(asOfWeek)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Diagnostic-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' },
+    body: JSON.stringify(request),
+});
+
+export const reviewCaseDiagnostic = (diagnosticId: string, request: { disposition: DiagnosticDisposition; rationale?: string; revision_text?: string }) =>
+    diagnosticJson<CaseDiagnostic>(`/${encodeURIComponent(diagnosticId)}/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Diagnostic-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' },
+        body: JSON.stringify(request),
+    });
+
 export const getMetadata = () => getJson<Envelope<MetadataResponse>>('/metadata');
 
 export interface OperationRow {
@@ -348,5 +433,5 @@ async function reportJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const createSnapshotReview = (request: SnapshotReportRequest) => reportJson<ReportReviewPacket>('/snapshot-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
-export const reviewReportInsight = (reportId: string, insightId: string, request: { disposition: InsightDisposition; rationale: string; revision_text?: string }) => reportJson<ReportReviewPacket>(`/${encodeURIComponent(reportId)}/insights/${encodeURIComponent(insightId)}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Report-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' }, body: JSON.stringify(request) });
+export const reviewReportInsight = (reportId: string, insightId: string, request: { disposition: InsightDisposition; rationale?: string; revision_text?: string }) => reportJson<ReportReviewPacket>(`/${encodeURIComponent(reportId)}/insights/${encodeURIComponent(insightId)}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Report-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' }, body: JSON.stringify(request) });
 export const reportExportUrl = (reportId: string, kind: 'REVIEWED_HTML' | 'DRAFT_HTML') => `${BASE_PATH}/api/v1/reports/${encodeURIComponent(reportId)}/export?kind=${kind}`;

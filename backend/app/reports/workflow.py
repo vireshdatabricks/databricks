@@ -170,12 +170,80 @@ def record_download(database_path: Path, report_id: str, requester_subject: str,
     return report, allowed
 
 
+DISPLAY_LABELS = {
+    "SYSTEM_GENERATED_DRAFT": "System-generated draft",
+    "DRAFT_REQUIRES_REVIEW": "Draft requires review",
+    "ADDITIONAL_EVIDENCE_REQUIRED": "Additional evidence required",
+    "AGGREGATE_FACT": "Aggregate fact",
+    "TICKET_FIELD": "Ticket field",
+    "WORK_NOTE": "Work note",
+    "VALIDATED": "Validated",
+    "REJECTED": "Rejected",
+    "REVISED": "Revised",
+    "DUPLICATE": "Duplicate",
+    "PENDING": "Pending",
+}
+
+
+def _display_label(value: str) -> str:
+    if value in DISPLAY_LABELS:
+        return DISPLAY_LABELS[value]
+    return " / ".join(part.replace("_", " ").strip().title() for part in value.split("."))
+
+
+def _format_fact_value(value: str) -> str:
+    """Keep technical JSON out of the business report while retaining traceability."""
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return value
+    if isinstance(parsed, list):
+        readable = []
+        for item in parsed:
+            if isinstance(item, dict) and "label" in item and "count" in item:
+                readable.append(f"{item['label']}: {item['count']}")
+            else:
+                readable.append(str(item))
+        return "; ".join(readable)
+    if isinstance(parsed, dict):
+        return "; ".join(f"{key.replace('_', ' ')}: {item}" for key, item in parsed.items())
+    return str(parsed)
+
+
+def _render_narrative_html(body: str) -> str:
+    """Render stored plain text safely as readable paragraphs or simple bullet lists."""
+    blocks = [block.strip() for block in body.split("\n\n") if block.strip()]
+    rendered = []
+    for block in blocks:
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if lines and all(line.startswith(("- ", "* ")) for line in lines):
+            items = "".join(f"<li>{html.escape(line[2:].replace('_', ' '))}</li>" for line in lines)
+            rendered.append(f"<ul>{items}</ul>")
+        else:
+            rendered.append(f"<p>{'<br>'.join(html.escape(line.replace('_', ' ')) for line in lines)}</p>")
+    return "".join(rendered) or "<p></p>"
+
+
 def render_html(report: dict[str, Any], final: bool) -> str:
     scope = " / ".join(value for value in (report["client_account"], report["category"]) if value) or "General snapshot"
-    title = "Reviewed client briefing" if final else "SYSTEM_GENERATED_DRAFT briefing"
+    title = "Sanford Snapshot Operational Briefing" if report["client_account"] else "Snapshot Operational Briefing"
+    status_label = "Reviewed export" if final else "Draft for review"
     blocks = []
     for insight in report["insights"]:
-        citations = "".join(f"<li><code>{html.escape(item['source_locator'])}</code>: {html.escape(item['excerpt'])}</li>" for item in insight["citations"])
-        blocks.append(f"<section><h2>{html.escape(insight['title'])}</h2><p>{html.escape(insight['body'])}</p><p><strong>Review status:</strong> {html.escape(insight['current_disposition'])}</p><h3>Citations</h3><ul>{citations}</ul></section>")
+        citations = "".join(
+            f"<li><strong>{html.escape(_display_label(item['source_locator']))}</strong><span>{html.escape(_format_fact_value(item['excerpt']))}</span></li>"
+            for item in insight["citations"]
+        )
+        blocks.append(
+            f"<section><h2>{html.escape(insight['title'])}</h2>{_render_narrative_html(insight['body'])}"
+            f"<p class='review-status'><strong>Review status:</strong> {html.escape(_display_label(insight['current_disposition']))}</p>"
+            f"<details><summary>Supporting facts</summary><ul>{citations}</ul></details></section>"
+        )
     notices = "".join(f"<li>{html.escape(item)}</li>" for item in report["disclaimers"])
-    return f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(title)}</title><style>body{{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;line-height:1.5}}section{{border:1px solid #ddd;padding:16px;margin:16px 0}}code{{overflow-wrap:anywhere}}</style></head><body><h1>{html.escape(title)}</h1><p><strong>Scope:</strong> {html.escape(scope)} | <strong>As of:</strong> {html.escape(report['as_of_week'])}</p><p><strong>Review readiness:</strong> {html.escape(json.dumps(report['readiness']))}</p><h2>Limitations</h2><ul>{notices}</ul>{''.join(blocks)}</body></html>"
+    readiness = report["readiness"]
+    readiness_text = f"{readiness['validated']} validated, {readiness['excluded']} excluded, {readiness['pending']} pending out of {readiness['total_material']} material insights"
+    styles = """
+body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#202124;line-height:1.55}
+header{border-bottom:4px solid #002677;padding-bottom:24px;margin-bottom:32px}h1{font-size:32px;line-height:1.2;color:#002677;margin:0 0 12px}h2{font-size:22px;line-height:1.3;color:#002677;margin:0 0 12px}h3{font-size:16px}.meta{color:#4b4d4f;margin:4px 0}.status{display:inline-block;background:#eef4ff;color:#224aa0;border-radius:16px;padding:4px 10px;font-weight:bold;font-size:14px}.readiness{background:#fafafa;border-left:4px solid #0c55b8;padding:12px 16px;margin:24px 0}section{border:1px solid #e5e5e6;border-radius:8px;padding:24px;margin:20px 0}section p{margin:12px 0}.review-status{font-size:14px;color:#4b4d4f}details{margin-top:16px;border-top:1px solid #e5e5e6;padding-top:12px}summary{color:#0c55b8;font-weight:bold;cursor:pointer}li{margin:8px 0}li span{display:block;color:#4b4d4f;margin-top:2px}.limitations{background:#fafafa;padding:16px 24px;border-radius:8px} @media(max-width:600px){body{margin:20px auto;padding:0 16px}section{padding:16px}h1{font-size:28px}}
+"""
+    return f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(title)}</title><style>{styles}</style></head><body><header><p class='status'>{html.escape(status_label)}</p><h1>{html.escape(title)}</h1><p class='meta'><strong>Scope:</strong> {html.escape(scope)}</p><p class='meta'><strong>As of:</strong> {html.escape(report['as_of_week'])}</p></header><div class='readiness'><strong>Review readiness:</strong> {html.escape(readiness_text)}</div>{''.join(blocks)}<section class='limitations'><h2>Data confidence and limitations</h2><ul>{notices}</ul></section></body></html>"
