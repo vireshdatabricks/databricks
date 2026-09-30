@@ -1,5 +1,7 @@
 from functools import lru_cache
+from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +52,15 @@ class Settings(BaseSettings):
     uhg_client_secret: str = ""
     uhg_project_id: str = ""
     uhg_gateway_endpoint: str = ""
+
+    # Local-only report drafting through the direct OpenAI API. This separate,
+    # explicit switch prevents a developer API key from changing shared behavior.
+    report_local_test_enabled: bool = False
+    openai_api_key: str = Field(default="", validation_alias=AliasChoices("OPENAI_API_KEY", "OPENAPI_KEYS"))
+    openai_model: str = "gpt-5-nano"
+    # Local review/audit store. Production must replace this with an owned database
+    # and authenticated identity mapping before treating reviewer identities as verified.
+    report_workflow_db_path: Path = Path("data/report_workflow.sqlite3")
 
     @property
     def resolved_databricks_hostname(self) -> str:

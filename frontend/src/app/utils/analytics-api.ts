@@ -44,6 +44,25 @@ export interface TaskTrendItem {
     closed_task_tat_calendar_days_avg: number | null;
 }
 
+export interface MonthlyTrendPoint {
+    report_month: string;
+    opened_count: number;
+    closed_count: number;
+    represented_record_count: number;
+}
+
+export interface MonthlyTrendSeries {
+    entity: string;
+    unit: string;
+    grain: string;
+    series_definition: string;
+    denominator_definition: string;
+    month_count: number;
+    total_opened_count: number;
+    total_closed_count: number;
+    points: MonthlyTrendPoint[];
+}
+
 export interface ThemeCandidate {
     theme_id: string;
     theme_label: string;
@@ -53,6 +72,19 @@ export interface ThemeCandidate {
     occurrence_rate: number;
     meets_min_support: boolean;
     method_type: string;
+}
+
+export interface ThemeSummaryCandidate extends ThemeCandidate {
+    denominator_count: number;
+    min_support_threshold: number;
+}
+
+export interface ThemeSummary {
+    total_candidate_count: number;
+    candidates_meeting_support_count: number;
+    cases_represented_count: number;
+    min_support_threshold: number;
+    top_candidates: ThemeSummaryCandidate[];
 }
 
 export interface ThemeCaseLink {
@@ -167,6 +199,24 @@ export const getTaskTrends = (params: {
     cursor?: string;
 }) => getJson<Envelope<TaskTrendItem[]>>('/task-trends', params);
 
+export const getCaseTrendSeries = (params: {
+    as_of_week?: string;
+    client_account?: string;
+    category?: string;
+    case_type?: string;
+    subtype?: string;
+    root_cause?: string;
+}) => getJson<Envelope<MonthlyTrendSeries>>('/case-trends/series', params);
+
+export const getTaskTrendSeries = (params: {
+    as_of_week?: string;
+    assignment_group?: string;
+    state?: string;
+    category?: string;
+    type?: string;
+    subtype?: string;
+}) => getJson<Envelope<MonthlyTrendSeries>>('/task-trends/series', params);
+
 export const getThemes = (params: {
     as_of_week?: string;
     category?: string;
@@ -175,6 +225,13 @@ export const getThemes = (params: {
     limit?: number;
     cursor?: string;
 }) => getJson<Envelope<ThemeCandidate[]>>('/themes', params);
+
+export const getThemesSummary = (params: {
+    as_of_week?: string;
+    category?: string;
+    root_cause?: string;
+    min_support?: number;
+}) => getJson<Envelope<ThemeSummary>>('/themes/summary', params);
 
 export const getThemeCases = (themeId: string, params: { as_of_week?: string; limit?: number; cursor?: string }) =>
     getJson<Envelope<ThemeCaseLink[]>>(`/themes/${encodeURIComponent(themeId)}/cases`, params);
@@ -193,8 +250,40 @@ export interface OperationRow {
     [key: string]: string | number | boolean | null | undefined;
 }
 
+export interface BreakdownItem {
+    label: string;
+    count: number;
+}
+
+export interface WorkloadSummary {
+    total_case_count: number;
+    open_case_count: number;
+    unknown_age_count: number;
+    oldest_age_calendar_days: number | null;
+    age_band_counts: BreakdownItem[];
+    assignment_group_counts: BreakdownItem[];
+}
+
+export interface DateRiskSummary {
+    total_case_count: number;
+    open_case_count: number;
+    usable_risk_date_count: number;
+    overdue_case_count: number;
+    risk_status_counts: BreakdownItem[];
+    risk_reference_type_counts: BreakdownItem[];
+}
+
+export interface DurationSummary { total_case_count: number; open_case_count: number; quality_status_counts: BreakdownItem[]; }
+export interface DocumentationSummary { total_case_count: number; closed_case_count: number; missing_description_count: number; missing_closure_note_count: number; missing_root_cause_count: number; missing_resolution_count: number; documentation_status_counts: BreakdownItem[]; }
+export interface DataQualitySummary { field_count: number; lowest_populated_rate: number | null; quality_status_counts: BreakdownItem[]; }
+
 export const getWorkload = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/workload', params);
 export const getDateRisk = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/date-risk', params);
+export const getWorkloadSummary = (params: QueryParams) => getJson<Envelope<WorkloadSummary>>('/operations/workload/summary', params);
+export const getDateRiskSummary = (params: QueryParams) => getJson<Envelope<DateRiskSummary>>('/operations/date-risk/summary', params);
+export const getDurationsSummary = (params: QueryParams) => getJson<Envelope<DurationSummary>>('/operations/durations/summary', params);
+export const getDocumentationSummary = (params: QueryParams) => getJson<Envelope<DocumentationSummary>>('/operations/documentation/summary', params);
+export const getDataQualitySummary = (params: QueryParams) => getJson<Envelope<DataQualitySummary>>('/operations/data-quality/summary', params);
 export const getDurations = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/durations', params);
 export const getDocumentation = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/documentation', params);
 export const getDataQuality = (params: QueryParams) => getJson<Envelope<OperationRow[]>>('/operations/data-quality', params);
@@ -241,3 +330,23 @@ export async function generateSnapshotReportDraft(request: SnapshotReportRequest
     }
     return response.json();
 }
+
+export interface ReportCitation { citation_id: string; source_type: 'AGGREGATE_FACT' | 'TICKET_FIELD' | 'WORK_NOTE' | 'ATTACHMENT'; source_locator: string; excerpt: string; classification: string; }
+export type InsightDisposition = 'VALIDATED' | 'REJECTED' | 'REVISED' | 'DUPLICATE' | 'ADDITIONAL_EVIDENCE_REQUIRED';
+export interface InsightReviewDecision { decision_id: string; reviewer_subject: string; disposition: InsightDisposition; rationale: string; revision_text: string | null; created_at: string; }
+export interface ReportInsight { insight_id: string; sequence: number; title: string; body: string; claim_type: string; confidence: string; material: boolean; current_disposition: string; citations: ReportCitation[]; decisions: InsightReviewDecision[]; }
+export interface ReportReadiness { total_material: number; validated: number; excluded: number; pending: number; ready: boolean; }
+export interface ReportReviewPacket { report_id: string; status: string; as_of_week: string; client_account: string | null; category: string | null; logic_version: string; generated_by_model: string; disclaimers: string[]; insights: ReportInsight[]; readiness: ReportReadiness; }
+
+async function reportJson<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${BASE_PATH}/api/v1/reports${path}`, { cache: 'no-store', ...init });
+    if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new AnalyticsApiError(body?.message ?? body?.detail ?? `Request failed with status ${response.status}`, response.status);
+    }
+    return response.json();
+}
+
+export const createSnapshotReview = (request: SnapshotReportRequest) => reportJson<ReportReviewPacket>('/snapshot-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+export const reviewReportInsight = (reportId: string, insightId: string, request: { disposition: InsightDisposition; rationale: string; revision_text?: string }) => reportJson<ReportReviewPacket>(`/${encodeURIComponent(reportId)}/insights/${encodeURIComponent(insightId)}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Report-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' }, body: JSON.stringify(request) });
+export const reportExportUrl = (reportId: string, kind: 'REVIEWED_HTML' | 'DRAFT_HTML') => `${BASE_PATH}/api/v1/reports/${encodeURIComponent(reportId)}/export?kind=${kind}`;

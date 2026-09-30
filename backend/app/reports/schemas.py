@@ -1,6 +1,7 @@
 from datetime import date
 
 from pydantic import BaseModel
+from typing import Literal
 
 
 class SnapshotReportRequest(BaseModel):
@@ -32,3 +33,17 @@ class SnapshotReportDraft(BaseModel):
     sections: list[ReportSection]
     facts: list[ReportFact]
     disclaimers: list[str]
+
+
+class ReviewDecisionRequest(BaseModel):
+    disposition: Literal["VALIDATED", "REJECTED", "REVISED", "DUPLICATE", "ADDITIONAL_EVIDENCE_REQUIRED"]
+    rationale: str
+    revision_text: str | None = None
+
+
+class DownloadReadiness(BaseModel):
+    total_material: int
+    validated: int
+    excluded: int
+    pending: int
+    ready: bool

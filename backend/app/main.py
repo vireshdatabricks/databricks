@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.insights.rbac import initialize_sqlite
+from app.reports.workflow import initialize_workflow
 from app.router import api_router
 
 from starlette.middleware.gzip import GZipMiddleware
@@ -17,6 +19,8 @@ logger = logging.getLogger("app.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    initialize_sqlite(settings.report_workflow_db_path)
+    initialize_workflow(settings.report_workflow_db_path)
     yield
 
 

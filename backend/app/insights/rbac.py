@@ -47,7 +47,8 @@ ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
 def initialize_sqlite(database_path: Path) -> None:
     """Create an idempotent local RBAC database and seed roles/permissions only."""
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(database_path) as connection:
+    connection = sqlite3.connect(database_path)
+    try:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(
             """
@@ -122,6 +123,9 @@ def initialize_sqlite(database_path: Path) -> None:
                     (role_key, permission_key),
                 )
         connection.execute("INSERT OR IGNORE INTO schema_migration(version) VALUES (?)", (MIGRATION_VERSION,))
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def seed_summary(database_path: Path) -> dict[str, int]:
