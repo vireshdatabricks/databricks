@@ -7,11 +7,15 @@ from app.analytics.schemas import (
     CaseDetail,
     CaseTrendItem,
     MetadataResponse,
+    MonthlyTrendPoint,
+    MonthlyTrendSeries,
     NarrativeSegment,
     SummaryData,
     TaskTrendItem,
     ThemeCandidate,
     ThemeCaseLink,
+    ThemeSummary,
+    ThemeSummaryCandidate,
 )
 from app.core.config import settings
 from app.core.exceptions import BadRequestError, NotFoundError
@@ -103,6 +107,15 @@ def list_operation(
     return body
 
 
+def get_operation_summary(operation: str, as_of_week: date | None, filters: dict[str, Any]) -> dict:
+    """Return one week-consistent Operations aggregate without pagination."""
+    resolved_week = resolve_as_of_week(as_of_week)
+    data = repository.get_operation_summary(operation, {"as_of_extract_week": resolved_week, **filters})
+    body = _envelope(resolved_week, data)
+    body["data_limitations"] = OPERATION_LIMITATIONS
+    return body
+
+
 def resolve_as_of_week(requested: date | None) -> date:
     available = repository.get_available_case_weeks()
     if not available:
@@ -117,7 +130,7 @@ def resolve_as_of_week(requested: date | None) -> date:
 def get_summary(as_of_week: date | None, client_account: str | None, line_of_business: str | None, assignment_group: str | None) -> dict:
     resolved_week = resolve_as_of_week(as_of_week)
     case_row = repository.get_case_summary(resolved_week, client_account, line_of_business, assignment_group)
-    task_row = repository.get_task_summary(resolved_week, assignment_group)
+    task_row = repository.get_task_summary(resolved_week, client_account, assignment_group)
     source_file_count = case_row.get("source_file_count") or 0
     data = SummaryData(
         total_case_count=case_row.get("total_case_count") or 0,
@@ -137,7 +150,7 @@ def list_case_trends(
 ) -> dict:
     resolved_week = resolve_as_of_week(as_of_week)
     offset = _decode_cursor(cursor)
-    rows = repository.list_case_trends(client_account, category, case_type, subtype, root_cause, limit, offset)
+    rows = repository.list_case_trends(resolved_week, client_account, category, case_type, subtype, root_cause, limit, offset)
     page, next_cursor = _paginate(rows, limit, offset)
     items = [CaseTrendItem(**row).model_dump(mode="json") for row in page]
     return _envelope(resolved_week, items, next_cursor)
@@ -149,7 +162,7 @@ def list_task_trends(
 ) -> dict:
     resolved_week = resolve_as_of_week(as_of_week)
     offset = _decode_cursor(cursor)
-    rows = repository.list_task_trends(assignment_group, state, category, task_type, subtype, limit, offset)
+    rows = repository.list_task_trends(resolved_week, assignment_group, state, category, task_type, subtype, limit, offset)
     page, next_cursor = _paginate(rows, limit, offset)
     items = [TaskTrendItem(**row).model_dump(mode="json") for row in page]
     return _envelope(resolved_week, items, next_cursor)
@@ -165,6 +178,64 @@ def list_themes(
     page, next_cursor = _paginate(rows, limit, offset)
     items = [ThemeCandidate(**row).model_dump(mode="json") for row in page]
     return _envelope(resolved_week, items, next_cursor)
+
+
+def get_case_trend_series(
+    as_of_week: date | None, client_account: str | None, category: str | None,
+    case_type: str | None, subtype: str | None, root_cause: str | None,
+) -> dict:
+    resolved_week = resolve_as_of_week(as_of_week)
+    rows = repository.get_case_trend_series(resolved_week, client_account, category, case_type, subtype, root_cause)
+    points = [MonthlyTrendPoint(**row) for row in rows]
+    data = MonthlyTrendSeries(
+        entity="case", unit="cases", grain="case_number by report_month",
+        series_definition="Current selected-week case records grouped by opened and closed month.",
+        denominator_definition="represented_record_count is the number of distinct cases contributing opened or closed dates in that month.",
+        month_count=len(points),
+        total_opened_count=sum(point.opened_count for point in points),
+        total_closed_count=sum(point.closed_count for point in points),
+        points=points,
+    )
+    return _envelope(resolved_week, data.model_dump(mode="json"))
+
+
+def get_task_trend_series(
+    as_of_week: date | None, assignment_group: str | None, state: str | None,
+    category: str | None, task_type: str | None, subtype: str | None,
+) -> dict:
+    resolved_week = resolve_as_of_week(as_of_week)
+    rows = repository.get_task_trend_series(resolved_week, assignment_group, state, category, task_type, subtype)
+    points = [MonthlyTrendPoint(**row) for row in rows]
+    data = MonthlyTrendSeries(
+        entity="task", unit="tasks", grain="task_number by report_month",
+        series_definition="Current selected-week task records grouped by opened and closed month.",
+        denominator_definition="represented_record_count is the number of distinct tasks contributing opened or closed dates in that month.",
+        month_count=len(points),
+        total_opened_count=sum(point.opened_count for point in points),
+        total_closed_count=sum(point.closed_count for point in points),
+        points=points,
+    )
+    return _envelope(resolved_week, data.model_dump(mode="json"))
+
+
+def get_theme_summary(
+    as_of_week: date | None, category: str | None, root_cause: str | None,
+    min_support: int | None, top_limit: int,
+) -> dict:
+    """Return one unpaginated Themes dashboard summary for a published week."""
+    resolved_week = resolve_as_of_week(as_of_week)
+    raw_data = repository.get_theme_summary(resolved_week, category, root_cause, min_support, top_limit)
+    data = ThemeSummary(
+        total_candidate_count=raw_data["total_candidate_count"],
+        candidates_meeting_support_count=raw_data["candidates_meeting_support_count"],
+        cases_represented_count=raw_data["cases_represented_count"],
+        min_support_threshold=raw_data["min_support_threshold"],
+        top_candidates=[ThemeSummaryCandidate(**row) for row in raw_data["top_candidates"]],
+    )
+    body = _envelope(resolved_week, data.model_dump(mode="json"))
+    body["selected_min_support"] = min_support
+    body["ranking_limit"] = top_limit
+    return body
 
 
 def list_theme_cases(theme_id: str, as_of_week: date | None, limit: int, cursor: str | None) -> dict:

@@ -1,19 +1,18 @@
 'use client';
 
 import React from 'react';
-import { SessionExpireDialogContainer as SessionExpireDialogContainerBase } from '@uhg-optum-coreplatform/saas-session-handler-pkg';
+// LOCAL DEVELOPMENT ONLY — restore this import before committing.
+// import { SessionExpireDialogContainer as SessionExpireDialogContainerBase } from '@uhg-optum-coreplatform/saas-session-handler-pkg';
 import { usePathname, useRouter } from 'next/navigation';
 
 import { BASE_PATH, withBasePath } from '../../utils/base-path';
 
-// Package ships types built against a different @types/react version; re-type to a valid JSX component.
-const SessionExpireDialogContainer =
-  SessionExpireDialogContainerBase as React.ComponentType<{
+const SessionExpireDialogContainer: React.ComponentType<{
     idleSessionTimeout: number;
     idleCountdownMinutes: number;
     logoutUser: () => void;
     handleRefreshSession: () => Promise<void>;
-  }>;
+  }> = () => null;
 
 const TimeoutPopup = () => {
   const pathName = usePathname();

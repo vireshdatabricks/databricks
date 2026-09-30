@@ -14,8 +14,6 @@
     "@mui/icons-material": "^5.10.16",
     "@mui/material": "^5.10.0",
     "@mui/x-date-pickers": "^9.11.0",
-    "@uhg-optum-coreplatform/saas-session-handler-pkg": "^1.0.0",
-    "@uhg-optum-coreplatform/security-as-a-service-pkg": "^2.3.6",
     "material-react-table": "^3.2.1",
     "next": "15.5.24",
     "node-cache": "^5.1.2",

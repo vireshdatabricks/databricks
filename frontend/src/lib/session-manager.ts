@@ -1,10 +1,14 @@
 import NodeCache from 'node-cache';
 import { createClient, RedisClientOptions, RedisClientType } from 'redis';
-import type {
-  ServerCacheWithPspFactoryStorage,
-  NormalizedMSIDToken,
-  MSIDJwtToken
-} from '@uhg-optum-coreplatform/security-as-a-service-pkg';
+// LOCAL DEVELOPMENT ONLY — restore this import before committing.
+// import type {
+//   ServerCacheWithPspFactoryStorage,
+//   NormalizedMSIDToken,
+//   MSIDJwtToken
+// } from '@uhg-optum-coreplatform/security-as-a-service-pkg';
+type NormalizedMSIDToken = Record<string, unknown>;
+type MSIDJwtToken = Record<string, unknown>;
+type ServerCacheWithPspFactoryStorage<T, U> = { token?: T; pspToken?: U };
 
 interface GlobalObj {
   memState?: NodeCache;

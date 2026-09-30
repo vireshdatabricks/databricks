@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { idpLogin } from '@uhg-optum-coreplatform/security-as-a-service-pkg';
+// LOCAL DEVELOPMENT ONLY — restore this import before committing.
+// import { idpLogin } from '@uhg-optum-coreplatform/security-as-a-service-pkg';
 import { Box, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { useSearchParams } from 'next/navigation';
@@ -11,6 +12,8 @@ import { getMSIDSettings } from './actions';
 import * as Brand from '../components/ui';
 import commonlyUsedStrings from '../utils/commonly-used-strings';
 import { withBasePath } from '../utils/base-path';
+
+const idpLogin = () => window.location.assign(withBasePath('/dashboard'));
 
 const Card = styled(Brand.Card)`
   display: flex;

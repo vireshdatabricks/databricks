@@ -39,6 +39,25 @@ class TaskTrendItem(BaseModel):
     closed_task_tat_calendar_days_avg: float | None = None
 
 
+class MonthlyTrendPoint(BaseModel):
+    report_month: date
+    opened_count: int
+    closed_count: int
+    represented_record_count: int
+
+
+class MonthlyTrendSeries(BaseModel):
+    entity: str
+    unit: str
+    grain: str
+    series_definition: str
+    denominator_definition: str
+    month_count: int
+    total_opened_count: int
+    total_closed_count: int
+    points: list[MonthlyTrendPoint]
+
+
 class ThemeCandidate(BaseModel):
     theme_id: str
     theme_label: str
@@ -48,6 +67,19 @@ class ThemeCandidate(BaseModel):
     occurrence_rate: float
     meets_min_support: bool
     method_type: str
+
+
+class ThemeSummaryCandidate(ThemeCandidate):
+    denominator_count: int
+    min_support_threshold: int
+
+
+class ThemeSummary(BaseModel):
+    total_candidate_count: int
+    candidates_meeting_support_count: int
+    cases_represented_count: int
+    min_support_threshold: int
+    top_candidates: list[ThemeSummaryCandidate]
 
 
 class ThemeCaseLink(BaseModel):

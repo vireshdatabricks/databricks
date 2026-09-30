@@ -8,9 +8,10 @@ to it, and this module never receives attachment binaries or raw case narrative 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 import httpx
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 from app.core.config import settings
 
@@ -68,8 +69,38 @@ def _build_direct_aoai_client() -> AzureOpenAI | None:
     )
 
 
-def build_client() -> AzureOpenAI | None:
+@dataclass(frozen=True)
+class LocalOpenAIClient:
+    """Direct OpenAI client used only for explicit local report draft testing."""
+
+    api_key: str
+    model: str
+
+    def generate_json(self, system_prompt: str, user_payload: str) -> str:
+        client = OpenAI(api_key=self.api_key, timeout=60.0)
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_payload},
+            ],
+            response_format={"type": "json_object"},
+        )
+        return response.choices[0].message.content or "{}"
+
+
+def _build_local_openai_client() -> LocalOpenAIClient | None:
+    if not settings.openai_api_key:
+        _log_once("ai_gateway_client mode: FALLBACK (local report testing requires OPENAI_API_KEY)", warning=True)
+        return None
+    _log_once(f"ai_gateway_client mode: LOCAL_TEST (OpenAI {settings.openai_model})")
+    return LocalOpenAIClient(api_key=settings.openai_api_key, model=settings.openai_model)
+
+
+def build_client() -> AzureOpenAI | LocalOpenAIClient | None:
     """Return a configured gateway client, or None when the gateway is disabled/unconfigured."""
+    if settings.report_local_test_enabled:
+        return _build_local_openai_client()
     if not settings.ai_live_enabled:
         _log_once("ai_gateway_client mode: FALLBACK (AI_LIVE_ENABLED=false)")
         return None

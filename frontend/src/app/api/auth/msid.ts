@@ -1,10 +1,11 @@
 import sessionManager from '@/lib/session-manager';
-import type { AuthType, TenantEnv } from '@uhg-optum-coreplatform/security-as-a-service-pkg';
-import { idpServerSessionIdCachePspFactory } from '@uhg-optum-coreplatform/security-as-a-service-pkg/src/factories/serverCache/serverSessionIdCacheFactory';
+// LOCAL DEVELOPMENT ONLY — restore these imports and the original factory before committing.
+// import type { AuthType, TenantEnv } from '@uhg-optum-coreplatform/security-as-a-service-pkg';
+// import { idpServerSessionIdCachePspFactory } from '@uhg-optum-coreplatform/security-as-a-service-pkg/src/factories/serverCache/serverSessionIdCacheFactory';
 
 const config = {
     config: {
-        idpType: 'entraid' as AuthType,
+        idpType: 'entraid',
         authUrl: process.env['PING_FED_AUTH_URL'] ?? '',
         authTokenPath: process.env['AUTH_TOKEN_PATH'] ?? '',
         clientId: process.env['PING_FED_CLIENT_ID'] ?? '',
@@ -13,7 +14,7 @@ const config = {
     },
     persistentStateManager: sessionManager,
     pspConfig: {
-        env: (process.env['AUTH_PASS_ENV'] ?? '') as TenantEnv,
+        env: process.env['AUTH_PASS_ENV'] ?? '',
         idpTokenType: 'entraid',
         isPspV2: true,
         clientId: process.env['AUTHPASS_CLIENT_ID'] ?? '',
@@ -21,5 +22,18 @@ const config = {
     }
 };
 
-export const msidFactory = idpServerSessionIdCachePspFactory(config);
+void config;
+void sessionManager;
+
+export const msidFactory = {
+    async exchangeCodeForToken({ code }: { code: string }) {
+        return { sessionId: code || 'local-development-session' };
+    },
+    async getValidPspToken(_sessionId: string) {
+        return undefined;
+    },
+    async getValidToken(_sessionId: string) {
+        return { decodedToken: { name: 'Local developer', authentication: 'disabled' } };
+    }
+};
 export default msidFactory;
