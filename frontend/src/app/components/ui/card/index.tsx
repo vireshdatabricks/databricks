@@ -4,15 +4,16 @@ import MuiCard, { CardProps as MuiCardProps } from '@mui/material/Card';
 import OptumTheme from '../../../utils/theme';
 
 type CardBorder = 'none' | 'outlined' | 'shadowed';
+type CardVariant = 'outlined' | 'subtle';
 type CardBackground = keyof typeof OptumTheme.palette.brand;
 
-interface CardProps extends Omit<MuiCardProps, 'color'> {
+interface CardProps extends Omit<MuiCardProps, 'color' | 'variant'> {
+    /** The approved card surface. Prefer this to legacy appearance props. */
+    variant?: CardVariant;
+    /** @deprecated Legacy compatibility while existing pages are migrated. */
     bordered?: CardBorder;
+    /** @deprecated Legacy compatibility while existing pages are migrated. */
     background?: CardBackground;
-    color?: string;
-    borderRadius?: string;
-
-    padding?: string;
 }
 
 const { brand } = OptumTheme.palette;
@@ -35,9 +36,7 @@ const borderStyles: Record<CardBorder, MuiCardProps['sx']> = {
 const Card = ({
     bordered = 'none',
     background = 'white',
-    color = brand.shark,
-    borderRadius = '16px',
-    padding = '24px',
+    variant,
     sx,
     children,
     ...props
@@ -46,11 +45,13 @@ const Card = ({
         <MuiCard
             sx={[
                 {
-                    padding,
-                    borderRadius,
+                    padding: '24px',
+                    borderRadius: '8px',
                     backgroundColor: brand[background],
-                    color,
-                    ...borderStyles[bordered],
+                    color: brand.shark,
+                    ...(variant === 'outlined' ? borderStyles.outlined : variant === 'subtle'
+                        ? { ...borderStyles.none, backgroundColor: brand.haze }
+                        : borderStyles[bordered]),
                 },
                 ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
             ]}
@@ -62,4 +63,4 @@ const Card = ({
 };
 
 export default Card;
-export type { CardBackground, CardBorder, CardProps };
+export type { CardBackground, CardBorder, CardProps, CardVariant };

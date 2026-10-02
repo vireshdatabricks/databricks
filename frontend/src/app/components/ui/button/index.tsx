@@ -9,6 +9,12 @@ interface ButtonProps extends Omit<MuiButtonProps, 'color' | 'variant' | 'size'>
     variant?: ButtonVariant;
     size?: ButtonSize;
     loading?: boolean;
+    /** Anchor props used by shared button-styled links (for example, report exports). */
+    component?: React.ElementType;
+    href?: string;
+    target?: string;
+    rel?: string;
+    download?: string | boolean;
 }
 
 const { brand } = OptumTheme.palette;
@@ -71,7 +77,7 @@ const variantStyles = {
         '&.Mui-disabled': {
             backgroundColor: 'transparent',
             borderColor: 'transparent',
-            color: brand.slate,
+            color: brand.shark,
         },
     },
     destructive: {
@@ -85,7 +91,7 @@ const variantStyles = {
             boxShadow: 'none',
         },
         '&:active': {
-            backgroundColor: '#F6D7D7',
+            backgroundColor: brand.dangerPressed,
             borderColor: brand.danger,
             boxShadow: 'none',
         },
@@ -121,7 +127,7 @@ const Button = ({
             {
                 ...sizeStyles[size],
                 borderRadius: '999px',
-                fontWeight: 700,
+                fontWeight: variant === 'secondary' ? 400 : 700,
                 ...variantStyles[variant],
             },
             ...(Array.isArray(sx) ? sx : sx ? [sx] : []),

@@ -25,8 +25,8 @@ const Loader = (props: ILoaderProps) => {
                 gap: 2
             }}
         >
-            <CircularProgress size={64} sx={{ color: "#002677" }} />
-            <Typography variant="h5" sx={{ color: "#002677" }}>
+            <CircularProgress size={64} sx={{ color: 'brand.enterpriseDarkBlue' }} />
+            <Typography variant="h5" sx={{ color: 'brand.enterpriseDarkBlue' }}>
                 {message}
             </Typography>
         </Box>

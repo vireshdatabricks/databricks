@@ -10,7 +10,7 @@ from typing import Any, Iterator
 from databricks import sql as databricks_sql
 
 from app.core.config import settings
-from app.core.exceptions import ServiceUnavailableError
+from app.core.exceptions import QueryFailedError, ServiceUnavailableError
 
 logger = logging.getLogger("app.databricks")
 
@@ -96,13 +96,12 @@ def run_query(query: str, parameters: dict[str, Any] | None = None) -> list[dict
     `query` must use named markers (e.g. ``:case_number``) for any user-supplied value;
     never interpolate user input directly into the SQL text.
     """
-    try:
-        with get_connection() as connection, connection.cursor() as cursor:
-            cursor.execute(query, parameters=parameters or {})
-            columns = [col[0] for col in cursor.description or []]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
-    except ServiceUnavailableError:
-        raise
-    except Exception as exc:
-        logger.error("Databricks query failed", exc_info=exc)
-        raise ServiceUnavailableError("The analytics data service failed to respond.") from exc
+    with get_connection() as connection:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, parameters=parameters or {})
+                columns = [col[0] for col in cursor.description or []]
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        except Exception as exc:
+            logger.error("Databricks query failed", exc_info=exc)
+            raise QueryFailedError("The analytics data service failed to respond.") from exc

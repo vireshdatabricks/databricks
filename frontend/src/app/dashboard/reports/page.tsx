@@ -1,454 +1,157 @@
 'use client';
 
-import React, { Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Box, Chip, Divider, Grid, TextField, Typography } from '@mui/material';
-
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Box, Stack, Typography } from '@mui/material';
+import { useRouter, useSearchParams } from 'next/navigation';
 import * as Brand from '../../components/ui';
-import {
-    AnalyticsApiError,
-    ClientDiagnosticReportSummary,
-    ReportFact,
-    ReportSection,
-    SnapshotReportDraft,
-    InsightDisposition,
-    ReportReviewPacket,
-    createSnapshotReview,
-    getClientDiagnosticReportSummary,
-    reportExportUrl,
-    reviewReportInsight,
-} from '../../utils/analytics-api';
-import QueryTextFilter from '../components/query-text-filter';
-import WeekSelect from '../components/week-select';
+import { importReport, listReportFamilies, listReportRequests, type ReportFamilies, type ReportFamily, type ReportRequest, type ReportStatus } from '../../lib/api/case-reports';
+import type { DataColumn } from '../../components/ui/data-table';
+import type { ApiFailure } from '../../lib/api/client';
+import { formatDateTime, formatPeriod, humanizeIdentifier, normaliseOptions, sentenceCase } from '../../lib/format';
+import { labelFor, reportStatusLabels, requestStateLabels } from '../../lib/labels';
 
-const BASE_LIMITATIONS = [
-    'Snapshot-only: this is not a longitudinal trend, recurrence, SLA, or PG view.',
-    'Candidate groupings and source fields require human interpretation; they do not establish root cause.',
-    'Case-level narrative evidence is not included until authenticated authorization is available.',
-];
+type LoadError = { state: 'unavailable' | 'forbidden' | 'not_found' | 'error'; message: string };
+const TERMINAL = ['IMPORTED', 'FAILED', 'CANCELLED'];
+const STATUS_FILTERS: Array<ReportStatus | 'all'> = ['all', 'IN_REVIEW', 'REVIEWED', 'SIGNED_OFF', 'SUPERSEDED'];
 
-const DISPLAY_LABELS: Record<string, string> = {
-    SYSTEM_GENERATED_DRAFT: 'System-generated draft',
-    DRAFT_REQUIRES_REVIEW: 'Draft requires review',
-    LOCAL_TEST_ONLY: 'Local test only',
-    ADDITIONAL_EVIDENCE_REQUIRED: 'Additional evidence required',
-    AGGREGATE_FACT: 'Aggregate fact',
-    TICKET_FIELD: 'Ticket field',
-    WORK_NOTE: 'Work note',
-    VALIDATED: 'Validated',
-    REJECTED: 'Rejected',
-    REVISED: 'Revised',
-    DUPLICATE: 'Duplicate',
-    PENDING: 'Pending',
-};
-
-const REPORT_ACTION_SX = { width: 168, justifyContent: 'center' };
-
-function displayLabel(value: string) {
-    return DISPLAY_LABELS[value] ?? value.replaceAll('_', ' ').replaceAll('.', ' / ');
+function toLoadError(error: ApiFailure): LoadError {
+  const state = error.kind === 'forbidden' || error.kind === 'not_found' || error.kind === 'unavailable' ? error.kind : 'error';
+  return { state, message: error.message };
+}
+// Short period in tables, full dates on hover (S20).
+function period(from?: string | null, to?: string | null) {
+  return <span title={formatPeriod(from, to, 'full')}>{formatPeriod(from, to)}</span>;
+}
+const rowAction = (status: ReportStatus) => status === 'SIGNED_OFF' || status === 'SUPERSEDED' ? 'View' : 'Continue review';
+function promptbookName(family: ReportFamily) {
+  return `${family.promptbook.name ?? humanizeIdentifier(family.promptbook.id)} v${family.promptbook.version}`;
 }
 
-function displayValue(value: string) {
-    return value.replaceAll('_', ' ');
+function ReportTitle({ family, context }: { family: ReportFamily; context: string }) {
+  const [open, setOpen] = useState(false);
+  const href = (id: string) => `/dashboard/reports/${encodeURIComponent(id)}${context ? `?${context}` : ''}`;
+  return <Stack spacing={0.5} alignItems="flex-start">
+    <Link href={href(family.latest.report_version_id)}>{sentenceCase(family.title)}</Link>
+    {family.versions.length > 0 && <>
+      <Brand.Button variant="tertiary" size="compact" aria-expanded={open} onClick={() => setOpen((value) => !value)}>Versions ({family.versions.length + 1})</Brand.Button>
+      {open && <Box component="ul" sx={{ m: 0, pl: 3, display: 'grid', gap: 0.5 }}>
+        {family.versions.map((version) => <Typography component="li" variant="body2" key={version.report_version_id}>
+          <Link href={href(version.report_version_id)}>Imported {formatDateTime(version.imported_at)}</Link> · {labelFor(reportStatusLabels, version.status)} · {version.decided} of {version.total} decided
+        </Typography>)}
+      </Box>}
+    </>}
+  </Stack>;
 }
 
-function NarrativeText({ text }: { text: string }) {
-    const blocks = text.trim().split(/\r?\n\s*\r?\n/).filter(Boolean);
-    return <Box sx={{ display: 'grid', gap: 1.25 }}>
-        {blocks.map((block, index) => {
-            const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-            const bulletLines = lines.length > 0 && lines.every((line) => /^[*-]\s+/.test(line));
-            return bulletLines
-                ? <Box component="ul" key={index} sx={{ m: 0, pl: 2.5 }}>{lines.map((line, lineIndex) => <li key={lineIndex}>{displayValue(line.replace(/^[*-]\s+/, ''))}</li>)}</Box>
-                : <Typography key={index} variant="body1" sx={{ lineHeight: 1.75, fontSize: '1.02rem' }}>{displayValue(lines.join(' '))}</Typography>;
-        })}
-    </Box>;
+function ReportsList() {
+  const search = useSearchParams();
+  const router = useRouter();
+  const [data, setData] = useState<ReportFamilies>({ families: [], status_counts: {} });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<LoadError>();
+  const [clients, setClients] = useState<string[]>([]);
+  const [status, setStatus] = useState<string>('all');
+  const [importOpen, setImportOpen] = useState(false);
+  const [runId, setRunId] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [requests, setRequests] = useState<ReportRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [requestsError, setRequestsError] = useState<LoadError>();
+  const [tab, setTab] = useState(search.get('tab') === 'requests' ? 'requests' : 'versions');
+  const context = search.toString();
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(undefined);
+    const result = await listReportFamilies();
+    if (result.ok) setData(result.data.data); else setError(toLoadError(result.error));
+    setLoading(false);
+  }, []);
+  const loadRequests = useCallback(async (quiet = false) => {
+    if (!quiet) setRequestsLoading(true);
+    setRequestsError(undefined);
+    const result = await listReportRequests();
+    if (result.ok) setRequests(result.data.data); else setRequestsError(toLoadError(result.error));
+    setRequestsLoading(false);
+  }, []);
+  useEffect(() => { void load(); void loadRequests(); }, [load, loadRequests]);
+  useEffect(() => { setTab(search.get('tab') === 'requests' ? 'requests' : 'versions'); }, [search]);
+  const active = requests.filter((row) => !TERMINAL.includes(row.state));
+  useEffect(() => {
+    if (!active.length) return;
+    const timer = window.setInterval(() => { void loadRequests(true); }, 15000);
+    return () => window.clearInterval(timer);
+  }, [active.length, loadRequests]);
+  // A request that finished importing adds a version: refresh the families once it lands.
+  const importedCount = requests.filter((row) => row.state === 'IMPORTED').length;
+  useEffect(() => { if (importedCount) void load(); }, [importedCount, load]);
+
+  const clientOptions = useMemo(() => normaliseOptions(data.families.flatMap((family) => family.clients)), [data.families]);
+  const filtered = data.families.filter((family) => (!clients.length || family.clients.some((client) => clients.includes(client)))
+    && (status === 'all' || family.latest.status === status));
+  const total = data.families.length;
+  const statusOptions = STATUS_FILTERS.map((value) => ({ value, label: value === 'all' ? 'All' : labelFor(reportStatusLabels, value), count: value === 'all' ? total : data.status_counts[value] ?? 0 }));
+
+  const columns: DataColumn<ReportFamily>[] = [
+    { id: 'title', label: 'Report', sortable: true, minWidth: 220, value: (row) => row.title, render: (row) => <ReportTitle family={row} context={context} /> },
+    { id: 'clients', label: 'Clients', maxLines: 2, minWidth: 140, value: (row) => row.clients.join(', ') },
+    { id: 'period', label: 'Period', nowrap: true, render: (row) => period(row.date_from, row.date_to) },
+    { id: 'promptbook', label: 'Promptbook', maxLines: 2, value: promptbookName },
+    { id: 'progress', label: 'Decided', nowrap: true, render: (row) => <Brand.ProgressSummary compact decided={row.latest.decided} total={row.latest.total} /> },
+    { id: 'status', label: 'Status', nowrap: true, render: (row) => <Brand.StatusBadge status={row.latest.status} /> },
+    { id: 'last_activity_at', label: 'Last activity', nowrap: true, sortable: true, value: (row) => row.last_activity_at, render: (row) => formatDateTime(row.last_activity_at) },
+    { id: 'action', label: 'Action', nowrap: true, render: (row) => <Brand.Button variant="secondary" size="compact" component={Link} href={`/dashboard/reports/${encodeURIComponent(row.latest.report_version_id)}${context ? `?${context}` : ''}`} aria-label={`${rowAction(row.latest.status)}: ${sentenceCase(row.title)}`}>{rowAction(row.latest.status)}</Brand.Button> },
+  ];
+  const requestColumns: DataColumn<ReportRequest>[] = [
+    { id: 'promptbook', label: 'Promptbook', render: (row) => <Link href={`/dashboard/reports/requests/${encodeURIComponent(row.request_id)}`}>{humanizeIdentifier(row.parameters.promptbook_id)} v{row.parameters.promptbook_version}</Link> },
+    { id: 'clients', label: 'Clients', value: (row) => row.parameters.client_accounts.split(',').join(', ') },
+    { id: 'period', label: 'Period', nowrap: true, render: (row) => period(row.parameters.date_from, row.parameters.date_to) },
+    { id: 'created_at', label: 'Requested', nowrap: true, sortable: true, value: (row) => row.created_at, render: (row) => formatDateTime(row.created_at) },
+    { id: 'state', label: 'Status', nowrap: true, render: (row) => <Brand.StatusBadge status={row.state} /> },
+    { id: 'action', label: 'Action', nowrap: true, render: (row) => <Brand.Button variant="secondary" size="compact" component={Link} href={`/dashboard/reports/requests/${encodeURIComponent(row.request_id)}`}>View</Brand.Button> },
+  ];
+
+  const handleImport = async () => {
+    setImportError(''); setImporting(true);
+    const result = await importReport(runId.trim());
+    setImporting(false);
+    if (result.ok) router.push(`/dashboard/reports/${encodeURIComponent(result.data.report_version_id)}${context ? `?${context}` : ''}`);
+    else setImportError(result.error.kind === 'not_found' ? 'No report package exists for this run ID. Check the ID in the Databricks run output.' : result.error.message);
+  };
+  const changeTab = (value: string) => {
+    setTab(value);
+    const query = new URLSearchParams(search.toString());
+    query.set('tab', value);
+    router.replace(`/dashboard/reports?${query.toString()}`, { scroll: false });
+  };
+
+  return <Box sx={{ display: 'grid', gap: 3 }}>
+    <Brand.PageHeader title="Reports" description="Review generated reports, decide every item, and sign off."
+      actions={<><Brand.Button component={Link} href="/dashboard/reports/new">Request report</Brand.Button><Brand.MoreActionsMenu actions={[{ label: 'Import by run ID', onSelect: () => { setImportError(''); setImportOpen(true); } }]} /></>} />
+    {active.length > 0 && <Brand.Notice tone="info" title={`In progress (${active.length})`}>
+      <Box component="ul" sx={{ m: 0, pl: 3 }}>
+        {active.map((row) => <li key={row.request_id}><Link href={`/dashboard/reports/requests/${encodeURIComponent(row.request_id)}`}>{row.parameters.client_accounts.split(',').join(', ')} · {period(row.parameters.date_from, row.parameters.date_to)}</Link> — {labelFor(requestStateLabels, row.state)}</li>)}
+      </Box>
+    </Brand.Notice>}
+    <Brand.Tabs options={[{ value: 'versions', label: 'Reports' }, { value: 'requests', label: 'Requests' }]} value={tab} onChange={changeTab} />
+    {tab === 'requests' ? <>
+      <Brand.DataTable rows={requests} columns={requestColumns} getRowId={(row) => row.request_id} loading={requestsLoading} error={requestsError && { state: requestsError.state, description: requestsError.message }} onRetry={() => void loadRequests()} label="Report requests" resultLabel="request" emptyTitle="No report requests yet" emptyDescription="Use Request report to start a report run." />
+      <Typography variant="body2" color="text.secondary">Active requests refresh every 15 seconds. Completed runs are imported automatically.</Typography>
+    </> : <>
+      <Brand.FilterBar label="Report filters" active={clients.length > 0 || status !== 'all'} onClear={() => { setClients([]); setStatus('all'); }}>
+        <Brand.SegmentedControl label="Status" options={statusOptions} value={status} onChange={setStatus} />
+        <Box sx={{ minWidth: { xs: '100%', sm: 320 } }}><Brand.MultiSelect label="Clients" emptyLabel="All clients" inBar options={clientOptions} value={clients} onChange={setClients} /></Box>
+      </Brand.FilterBar>
+      <Brand.DataTable rows={filtered} columns={columns} getRowId={(row) => row.family_key} loading={loading} error={error && { state: error.state, description: error.message }} onRetry={() => void load()} label="Reports" resultLabel="report"
+        emptyTitle={total ? 'No reports match these filters' : 'No reports yet'} emptyDescription={total ? 'Change the status or clients, or clear the filters.' : 'Use Request report to start one.'} />
+      <Typography variant="body2">Other report types: <Link href={`/dashboard/reports/snapshot-briefing${context ? `?${context}` : ''}`}>Snapshot briefing</Link></Typography>
+    </>}
+    <Brand.Dialog open={importOpen} title="Import by run ID" description="Import a report run that was started outside the application." confirmLabel="Import report" busy={importing}
+      onClose={() => setImportOpen(false)} onConfirm={() => { if (runId.trim()) void handleImport(); else setImportError('Enter the analysis run ID.'); }}>
+      <Brand.Field label="Analysis run ID" value={runId} onChange={(event) => setRunId(event.target.value)} required helperText="Shown in the Databricks run output." errorText={importError || undefined} />
+    </Brand.Dialog>
+  </Box>;
 }
 
-function labelForFact(factId: string, factsById: Map<string, ReportFact>) {
-    return displayLabel(factsById.get(factId)?.label ?? factId);
-}
-
-function ReportSectionCard({ section, factsById }: { section: ReportSection; factsById: Map<string, ReportFact> }) {
-    return (
-        <Brand.Card bordered="outlined" sx={{ display: 'grid', gap: 1.5 }}>
-            <Typography variant="h6">{displayLabel(section.heading)}</Typography>
-            <NarrativeText text={section.body} />
-            <Divider />
-            <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-                    Fact references supporting this draft section
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-                    {section.fact_ids.map((factId) => (
-                        <Chip key={factId} label={labelForFact(factId, factsById)} size="small" variant="outlined" />
-                    ))}
-                </Box>
-            </Box>
-        </Brand.Card>
-    );
-}
-
-function ReferencedFacts({ draft }: { draft: SnapshotReportDraft }) {
-    const referencedIds = Array.from(new Set(draft.sections.flatMap((section) => section.fact_ids)));
-    const factsById = new Map(draft.facts.map((fact) => [fact.fact_id, fact]));
-
-    return (
-        <Brand.Card bordered="outlined">
-            <Typography variant="h6">Fact reference register</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                The generated narrative may use only these server-provided facts. Expand a reference to inspect its deterministic label and value.
-            </Typography>
-            <Box sx={{ display: 'grid', gap: 1, mt: 2 }}>
-                {referencedIds.map((factId) => {
-                    const fact = factsById.get(factId);
-                    return (
-                        <Box component="details" key={factId} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, px: 1.5, py: 1 }}>
-                            <Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>{displayLabel(fact?.label ?? factId)}</Box>
-                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                                {displayValue(fact?.value ?? 'The referenced fact was unavailable in this response.')}
-                            </Typography>
-                        </Box>
-                    );
-                })}
-            </Box>
-        </Brand.Card>
-    );
-}
-
-function BriefingDraft({ draft, filtersApplied }: { draft: SnapshotReportDraft; filtersApplied: string[] }) {
-    const factsById = new Map(draft.facts.map((fact) => [fact.fact_id, fact]));
-    const isLocalTest = draft.disclaimers.some((disclaimer) => disclaimer.startsWith('LOCAL_TEST_ONLY'));
-    const scope = filtersApplied.length ? filtersApplied.join(' - ') : 'Entire published snapshot';
-    const citedFacts = new Set(draft.sections.flatMap((section) => section.fact_ids)).size;
-
-    return (
-        <Box sx={{ display: 'grid', gap: 2 }}>
-            <Brand.Card bordered="outlined" sx={{ borderLeft: '5px solid', borderLeftColor: 'warning.main' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
-                    <Box>
-                        <Typography variant="h5">Fast Facts briefing draft</Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                            A concise, traceable starting point for human review - not a final governed report.
-                        </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                        <Chip label="Human review required" color="warning" size="small" />
-                        {isLocalTest && <Chip label="Local test only" color="error" size="small" />}
-                    </Box>
-                </Box>
-                <Grid container spacing={2} sx={{ mt: 1 }}>
-                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Status</Typography><Typography variant="body2">{displayLabel(draft.status)}</Typography></Grid>
-                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">As-of week</Typography><Typography variant="body2">{draft.as_of_week}</Typography></Grid>
-                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Logic version</Typography><Typography variant="body2">{displayValue(draft.logic_version)}</Typography></Grid>
-                    <Grid item xs={12} sm={6} md={3}><Typography variant="caption" color="text.secondary">Drafting model</Typography><Typography variant="body2">{draft.generated_by_model}</Typography></Grid>
-                </Grid>
-            </Brand.Card>
-
-            <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                    <Brand.Card bordered="outlined" sx={{ height: '100%' }}>
-                        <Typography variant="h6">Briefing scope</Typography>
-                        <Typography variant="body2" sx={{ mt: 1 }}><strong>Selected population:</strong> {scope}</Typography>
-                        <Typography variant="body2" sx={{ mt: 1 }}><strong>Fact package:</strong> {draft.facts.length.toLocaleString()} server-provided facts; {citedFacts.toLocaleString()} cited in this draft.</Typography>
-                    </Brand.Card>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                    <Brand.Card bordered="outlined" sx={{ height: '100%' }}>
-                        <Typography variant="h6">Review boundary</Typography>
-                        <Typography variant="body2" sx={{ mt: 1 }}>
-                            Check each material statement against its fact reference before sharing. This flow does not include authorized case-level narrative evidence.
-                        </Typography>
-                    </Brand.Card>
-                </Grid>
-            </Grid>
-
-            <Brand.Card bordered="outlined">
-                <Typography variant="h6">Scope and limitations</Typography>
-                <Box component="ul" sx={{ m: 0, mt: 1.25, pl: 2.5 }}>
-                    {[...draft.disclaimers, ...BASE_LIMITATIONS].map((limitation) => <li key={limitation}><Typography variant="body2">{displayLabel(limitation)}</Typography></li>)}
-                </Box>
-            </Brand.Card>
-
-            <Box sx={{ display: 'grid', gap: 2 }}>
-                <Typography variant="h5" component="h2">Draft briefing</Typography>
-                {draft.sections.map((section, index) => <ReportSectionCard key={`${section.heading}-${index}`} section={section} factsById={factsById} />)}
-            </Box>
-
-            <ReferencedFacts draft={draft} />
-        </Box>
-    );
-}
-
-function ReviewPacket({ packet, onUpdate }: { packet: ReportReviewPacket; onUpdate: (next: ReportReviewPacket) => void }) {
-    return <AllInsightsReview packet={packet} onUpdate={onUpdate} />;
-    /* Legacy single-insight wizard retained below temporarily for a small, safe diff.
-    const [pendingActions, setPendingActions] = React.useState<Record<string, InsightDisposition | undefined>>({});
-    const [rationales, setRationales] = React.useState<Record<string, string>>({});
-    const [busy, setBusy] = React.useState<string | null>(null);
-    const [error, setError] = React.useState<string | null>(null);
-    const decide = async (insightId: string, disposition: InsightDisposition) => {
-        const rationale = rationales[insightId]?.trim() ?? '';
-        if (disposition !== 'VALIDATED' && !rationale) { setError('Please add a short reason for this decision.'); return; }
-        setBusy(insightId); setError(null);
-        try {
-            onUpdate(await reviewReportInsight(packet.report_id, insightId, { disposition, rationale: rationale || undefined }));
-            setRationales((current) => ({ ...current, [insightId]: '' }));
-            setPendingActions((current) => ({ ...current, [insightId]: undefined }));
-        }
-        catch (err) { setError(err instanceof AnalyticsApiError ? err.message : 'Unable to record review decision.'); }
-        finally { setBusy(null); }
-    };
-    const { readiness } = packet;
-    const reviewProgress = readiness.total_material ? ((readiness.validated + readiness.excluded) / readiness.total_material) * 100 : 0;
-    return <Grid container spacing={2.5} sx={{ alignItems: 'flex-start' }}>
-        <Grid item xs={12} md={3}>
-            <Brand.Card bordered="outlined" sx={{ position: { md: 'sticky' }, top: { md: 20 }, p: 0, overflow: 'hidden', borderColor: 'divider' }}>
-                <Box sx={{ px: 2.25, py: 2, bgcolor: '#f5f8fc', borderBottom: '1px solid', borderColor: 'divider' }}><Typography variant="overline" color="primary.main">Report process</Typography><Typography variant="h6">Sanford review</Typography></Box>
-                <Box sx={{ p: 1 }}>{[
-                    ['Briefing', 'Complete', '✓'],
-                    ['Insight review', `${readiness.total_material - readiness.pending} / ${readiness.total_material} decided`, readiness.pending ? '•' : '✓'],
-                    ['Evidence', 'Aggregate facts cited', '✓'],
-                    ['Export', readiness.ready ? 'Ready' : `${readiness.pending} decision(s) needed`, readiness.ready ? '✓' : '•'],
-                ].map(([name, detail, mark], index) => <Box key={name} sx={{ display: 'flex', gap: 1.25, px: 1.25, py: 1.2, borderRadius: 1.5, bgcolor: index === 1 ? '#eaf2ff' : 'transparent' }}><Box sx={{ width: 22, height: 22, borderRadius: '50%', bgcolor: index === 1 ? 'primary.main' : mark === '✓' ? 'success.light' : 'warning.light', color: index === 1 ? 'common.white' : 'text.primary', display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 700 }}>{mark}</Box><Box><Typography variant="body2" fontWeight={700}>{name}</Typography><Typography variant="caption" color="text.secondary">{detail}</Typography></Box></Box>)}</Box>
-                <Box sx={{ px: 2.25, pb: 2 }}><Box sx={{ height: 6, borderRadius: 99, bgcolor: 'grey.200', overflow: 'hidden' }}><Box sx={{ width: `${reviewProgress}%`, height: '100%', bgcolor: 'primary.main', transition: 'width 200ms' }} /></Box><Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>{readiness.validated + readiness.excluded} of {readiness.total_material} decisions recorded</Typography></Box>
-            </Brand.Card>
-        </Grid>
-        <Grid item xs={12} md={9}><Box sx={{ display: 'grid', gap: 2 }}>
-            <Brand.Card bordered="outlined" sx={{ bgcolor: '#fbfcfe' }}><Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}><Box><Typography variant="h5">AI PSA account review</Typography><Typography variant="body2" color="text.secondary">{packet.client_account ?? 'General snapshot'} · as of {packet.as_of_week}</Typography></Box><Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Chip label="Cited" color="primary" variant="outlined" /><Brand.Button component="a" href={reportExportUrl(packet.report_id, 'DRAFT_HTML')} target="_blank" variant="secondary">Draft HTML</Brand.Button><Brand.Button component="a" href={readiness.ready ? reportExportUrl(packet.report_id, 'REVIEWED_HTML') : undefined} disabled={!readiness.ready}>Reviewed export</Brand.Button></Box></Box></Brand.Card>
-            {activeInsight && <Brand.Card bordered="outlined" sx={{ display: 'grid', gap: 2.25, borderColor: '#cbd9ec' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}><Box><Typography variant="overline" color="primary.main">Insight {activeInsight.sequence} of {packet.insights.length}</Typography><Typography variant="h5">{activeInsight.title}</Typography></Box><Chip label={activeInsight.current_disposition.replaceAll('_', ' ')} color={activeInsight.current_disposition === 'VALIDATED' ? 'success' : activeInsight.current_disposition === 'PENDING' ? 'warning' : 'default'} /></Box>
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.75, fontSize: '1.02rem' }}>{activeInsight.body}</Typography><Divider />
-                <Box><Typography variant="subtitle2">Cited evidence</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>These are the aggregate facts used to create this candidate insight.</Typography>{activeInsight.citations.map((citation) => <Box key={citation.citation_id} sx={{ mt: 0.75, px: 1.25, py: 1, borderRadius: 1, bgcolor: '#f6f9fd', borderLeft: '3px solid', borderColor: 'primary.light' }}><Typography variant="caption" color="primary.main" fontWeight={700}>{citation.source_locator}</Typography><Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{citation.excerpt}</Typography></Box>)}</Box>
-                <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}><Typography variant="subtitle2">Decision</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, mb: 1.25 }}>Approve is immediate. Other decisions require a short explanation.</Typography><Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Brand.Button onClick={() => decide('VALIDATED')} disabled={busy === activeInsight.insight_id}>{busy === activeInsight.insight_id ? 'Saving...' : 'Approve insight'}</Brand.Button><Brand.Button variant="secondary" onClick={() => setPendingAction('REJECTED')}>Decline</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingAction('REVISED')}>Revise</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingAction('ADDITIONAL_EVIDENCE_REQUIRED')}>Need evidence</Brand.Button></Box>{pendingAction && <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap', alignItems: 'center' }}><TextField size="small" autoFocus required label="Reason for this decision" value={rationale} onChange={(event) => setRationale(event.target.value)} sx={{ minWidth: 300, flex: 1 }} /><Brand.Button onClick={() => decide(pendingAction)} disabled={busy === activeInsight.insight_id}>Confirm {pendingAction === 'REJECTED' ? 'decline' : pendingAction === 'REVISED' ? 'revision' : 'evidence request'}</Brand.Button><Brand.Button variant="tertiary" onClick={() => { setPendingAction(null); setRationale(''); }}>Cancel</Brand.Button></Box>}</Box>
-                {error && <Typography color="error" role="alert">{error}</Typography>}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}><Brand.Button variant="tertiary" onClick={() => setActiveIndex(Math.max(0, activeIndex - 1))} disabled={activeIndex === 0}>Previous</Brand.Button><Brand.Button variant="tertiary" onClick={() => setActiveIndex(Math.min(packet.insights.length - 1, activeIndex + 1))} disabled={activeIndex === packet.insights.length - 1}>Next insight</Brand.Button></Box>
-            </Brand.Card>}
-        </Box></Grid>
-    </Grid>;
-    */
-}
-
-function AllInsightsReview({ packet, onUpdate }: { packet: ReportReviewPacket; onUpdate: (next: ReportReviewPacket) => void }) {
-    const [pendingActions, setPendingActions] = React.useState<Record<string, InsightDisposition | undefined>>({});
-    const [rationales, setRationales] = React.useState<Record<string, string>>({});
-    const [busy, setBusy] = React.useState<string | null>(null);
-    const [error, setError] = React.useState<string | null>(null);
-    const { readiness } = packet;
-    const reviewProgress = readiness.total_material ? ((readiness.validated + readiness.excluded) / readiness.total_material) * 100 : 0;
-
-    const decide = async (insightId: string, disposition: InsightDisposition) => {
-        const rationale = rationales[insightId]?.trim() ?? '';
-        if (disposition !== 'VALIDATED' && !rationale) { setError('Please add a short reason for this decision.'); return; }
-        setBusy(insightId); setError(null);
-        try {
-            onUpdate(await reviewReportInsight(packet.report_id, insightId, { disposition, rationale: rationale || undefined }));
-            setRationales((current) => ({ ...current, [insightId]: '' }));
-            setPendingActions((current) => ({ ...current, [insightId]: undefined }));
-        } catch (err) {
-            setError(err instanceof AnalyticsApiError ? err.message : 'Unable to record review decision.');
-        } finally {
-            setBusy(null);
-        }
-    };
-
-    return <Box sx={{ display: 'grid', gap: 2 }}>
-        <Brand.Card bordered="outlined" sx={{ borderLeft: '5px solid', borderLeftColor: readiness.ready ? 'success.main' : 'warning.main' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-                <Box><Typography variant="h5">Briefing review and export</Typography><Typography variant="body2" color="text.secondary">Each decision is stored separately with the local development reviewer label.</Typography></Box>
-                <Chip label={readiness.ready ? 'Reviewed export ready' : `${readiness.pending} material insight(s) pending`} color={readiness.ready ? 'success' : 'warning'} />
-            </Box>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-                {[['Material insights', readiness.total_material], ['Validated', readiness.validated], ['Excluded', readiness.excluded], ['Pending', readiness.pending]].map(([label, value]) => <Grid item xs={6} md={3} key={String(label)}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="h6">{value}</Typography></Grid>)}
-            </Grid>
-            <Box sx={{ height: 6, borderRadius: 99, bgcolor: 'grey.200', overflow: 'hidden', mt: 2 }}><Box sx={{ width: `${reviewProgress}%`, height: '100%', bgcolor: 'primary.main', transition: 'width 200ms' }} /></Box>
-            <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}><Brand.Button component="a" href={reportExportUrl(packet.report_id, 'DRAFT_HTML')} target="_blank" variant="secondary" sx={REPORT_ACTION_SX}>Draft HTML</Brand.Button><Brand.Button component="a" href={readiness.ready ? reportExportUrl(packet.report_id, 'REVIEWED_HTML') : undefined} disabled={!readiness.ready} sx={REPORT_ACTION_SX}>Reviewed export</Brand.Button></Box>
-        </Brand.Card>
-        {error && <Typography color="error" role="alert">{error}</Typography>}
-        {packet.insights.map((insight) => {
-            const pendingAction = pendingActions[insight.insight_id];
-            const rationale = rationales[insight.insight_id] ?? '';
-            return <Brand.Card key={insight.insight_id} bordered="outlined" sx={{ display: 'grid', gap: 2, borderColor: '#cbd9ec' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}><Box><Typography variant="overline" color="primary.main">Insight {insight.sequence} of {packet.insights.length}</Typography><Typography variant="h5">{displayLabel(insight.title)}</Typography></Box><Chip label={displayLabel(insight.current_disposition)} color={insight.current_disposition === 'VALIDATED' ? 'success' : insight.current_disposition === 'PENDING' ? 'warning' : 'default'} /></Box>
-                <NarrativeText text={insight.body} />
-                <Divider />
-                <Box><Typography variant="subtitle2">Cited evidence</Typography><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>These aggregate facts support this candidate insight.</Typography>{insight.citations.map((citation) => <Box key={citation.citation_id} sx={{ mt: 0.75, px: 1.25, py: 1, borderRadius: 1, bgcolor: '#f6f9fd', borderLeft: '3px solid', borderColor: 'primary.light' }}><Typography variant="caption" color="primary.main" fontWeight={700}>{displayLabel(citation.source_locator)}</Typography><Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{displayValue(citation.excerpt)}</Typography></Box>)}</Box>
-                <Box sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}><Typography variant="subtitle2">Decision</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, mb: 1.25 }}>Approval is immediate. Other decisions require a short explanation.</Typography><Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}><Brand.Button onClick={() => decide(insight.insight_id, 'VALIDATED')} disabled={busy === insight.insight_id} sx={REPORT_ACTION_SX}>{busy === insight.insight_id ? 'Saving...' : 'Approve insight'}</Brand.Button><Brand.Button variant="secondary" onClick={() => setPendingActions((current) => ({ ...current, [insight.insight_id]: 'REJECTED' }))} sx={REPORT_ACTION_SX}>Decline</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingActions((current) => ({ ...current, [insight.insight_id]: 'REVISED' }))} sx={REPORT_ACTION_SX}>Revise</Brand.Button><Brand.Button variant="tertiary" onClick={() => setPendingActions((current) => ({ ...current, [insight.insight_id]: 'ADDITIONAL_EVIDENCE_REQUIRED' }))} sx={REPORT_ACTION_SX}>Need evidence</Brand.Button></Box>{pendingAction && <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap', alignItems: 'center' }}><TextField size="small" autoFocus required label="Reason for this decision" value={rationale} onChange={(event) => setRationales((current) => ({ ...current, [insight.insight_id]: event.target.value }))} sx={{ minWidth: 300, flex: 1 }} /><Brand.Button onClick={() => decide(insight.insight_id, pendingAction)} disabled={busy === insight.insight_id} sx={REPORT_ACTION_SX}>Confirm {pendingAction === 'REJECTED' ? 'decline' : pendingAction === 'REVISED' ? 'revision' : 'evidence request'}</Brand.Button><Brand.Button variant="tertiary" onClick={() => { setPendingActions((current) => ({ ...current, [insight.insight_id]: undefined })); setRationales((current) => ({ ...current, [insight.insight_id]: '' })); }} sx={REPORT_ACTION_SX}>Cancel</Brand.Button></Box>}</Box>
-            </Brand.Card>;
-        })}
-    </Box>;
-}
-
-function DiagnosticSummarySection({ clientAccount, asOfWeek }: { clientAccount: string; asOfWeek?: string }) {
-    const [summary, setSummary] = React.useState<ClientDiagnosticReportSummary | null>(null);
-    const [loading, setLoading] = React.useState(false);
-    const [error, setError] = React.useState<string | null>(null);
-
-    React.useEffect(() => {
-        let cancelled = false;
-        setLoading(true);
-        setError(null);
-        getClientDiagnosticReportSummary(clientAccount, { as_of_week: asOfWeek })
-            .then((result) => { if (!cancelled) setSummary(result); })
-            .catch((err) => { if (!cancelled) setError(err instanceof AnalyticsApiError ? err.message : 'Unable to load case diagnostics for this client.'); })
-            .finally(() => { if (!cancelled) setLoading(false); });
-        return () => { cancelled = true; };
-    }, [clientAccount, asOfWeek]);
-
-    if (loading) return <Typography aria-live="polite">Loading case diagnostics...</Typography>;
-    if (error) return <Brand.Card bordered="outlined" role="alert"><Typography color="error">{error}</Typography></Brand.Card>;
-    if (!summary) return null;
-
-    return (
-        <Box sx={{ display: 'grid', gap: 2 }}>
-            <Typography variant="h5" component="h2">Case diagnostics: {summary.client_account}</Typography>
-            <Brand.Card bordered="outlined">
-                <Grid container spacing={2}>
-                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Created</Typography><Typography variant="h6">{summary.created}</Typography></Grid>
-                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Validated</Typography><Typography variant="h6">{summary.validated}</Typography></Grid>
-                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Pending review</Typography><Typography variant="h6">{summary.pending}</Typography></Grid>
-                    <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Reviewed, not validated</Typography><Typography variant="h6">{summary.reviewed_not_validated}</Typography></Grid>
-                </Grid>
-            </Brand.Card>
-
-            {summary.validated === 0 ? (
-                <Brand.Card bordered="outlined">
-                    <Typography variant="body1">0 validated diagnostics for this client and week.</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                        This reflects the current review state only, not an absence of underlying issues.
-                    </Typography>
-                </Brand.Card>
-            ) : (
-                <>
-                    {summary.consolidated_patterns.length > 0 && (
-                        <Box sx={{ display: 'grid', gap: 1.5 }}>
-                            <Typography variant="h6">Consolidated patterns</Typography>
-                            {summary.consolidated_patterns.map((pattern) => (
-                                <Brand.Card key={pattern.contributing_factor} bordered="outlined" sx={{ display: 'grid', gap: 1 }}>
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-                                        <Typography variant="subtitle1">{pattern.contributing_factor}</Typography>
-                                        <Chip label={`${pattern.case_count} cases`} size="small" />
-                                    </Box>
-                                    <Typography variant="body2" color="text.secondary">Cases: {pattern.case_numbers.join(', ')}</Typography>
-                                    {pattern.candidate_owners.length > 0 && <Typography variant="body2"><strong>Candidate owners:</strong> {pattern.candidate_owners.join(', ')}</Typography>}
-                                    {pattern.proposed_actions.length > 0 && <Typography variant="body2"><strong>Proposed actions:</strong> {pattern.proposed_actions.join(', ')}</Typography>}
-                                </Brand.Card>
-                            ))}
-                        </Box>
-                    )}
-
-                    {summary.validated_one_off_diagnostics.length > 0 && (
-                        <Box sx={{ display: 'grid', gap: 1.5 }}>
-                            <Typography variant="h6">Validated one-off diagnostics</Typography>
-                            {summary.validated_one_off_diagnostics.map((diagnostic) => (
-                                <Brand.Card key={diagnostic.diagnostic_id} bordered="outlined" sx={{ display: 'grid', gap: 0.5 }}>
-                                    <Typography variant="subtitle2">Case {diagnostic.case_number}</Typography>
-                                    <Typography variant="body2"><strong>Observed issue:</strong> {diagnostic.observed_issue}</Typography>
-                                    {diagnostic.candidate_contributing_factor && <Typography variant="body2"><strong>Contributing factor:</strong> {diagnostic.candidate_contributing_factor}</Typography>}
-                                    {diagnostic.candidate_owner && <Typography variant="body2"><strong>Candidate owner:</strong> {diagnostic.candidate_owner}</Typography>}
-                                    {diagnostic.proposed_action && <Typography variant="body2"><strong>Proposed action:</strong> {diagnostic.proposed_action}</Typography>}
-                                </Brand.Card>
-                            ))}
-                        </Box>
-                    )}
-                </>
-            )}
-
-            <Brand.Card bordered="outlined">
-                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-                    {summary.limitations.map((limitation) => <li key={limitation}><Typography variant="body2" color="text.secondary">{limitation}</Typography></li>)}
-                    <li><Typography variant="body2" color="text.secondary">{summary.identity_notice}</Typography></li>
-                </Box>
-            </Brand.Card>
-        </Box>
-    );
-}
-
-function ReportsContent() {
-    const searchParams = useSearchParams();
-    const [draft, setDraft] = React.useState<SnapshotReportDraft | null>(null);
-    const [reviewPacket, setReviewPacket] = React.useState<ReportReviewPacket | null>(null);
-    const [loading, setLoading] = React.useState(false);
-    const [error, setError] = React.useState<string | null>(null);
-
-    const asOfWeek = searchParams.get('as_of_week') ?? undefined;
-    const clientAccount = searchParams.get('client_account') ?? undefined;
-    const category = searchParams.get('category') ?? undefined;
-    const filtersApplied = [clientAccount && `Client account: ${clientAccount}`, category && `Category: ${category}`]
-        .filter((value): value is string => Boolean(value));
-
-    const handleGenerate = async () => {
-        setLoading(true);
-        setError(null);
-        setDraft(null);
-        setReviewPacket(null);
-        try {
-            const result = await createSnapshotReview({
-                as_of_week: asOfWeek,
-                client_account: clientAccount,
-                category,
-                evidence_authorized: false,
-            });
-            setReviewPacket(result);
-        } catch (err) {
-            setError(err instanceof AnalyticsApiError ? err.message : 'Unable to generate the Fast Facts briefing draft.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <Box sx={{ display: 'grid', gap: 3, maxWidth: 1120 }}>
-            <Box>
-                <Typography variant="h4" component="h1">Snapshot operational briefing</Typography>
-                <Typography variant="body1" color="text.secondary" sx={{ mt: 0.75, maxWidth: 780 }}>
-                    Create a fact-referenced operational briefing for a selected snapshot. It identifies review priorities from supported aggregates and remains a draft until reviewed.
-                </Typography>
-            </Box>
-
-            <Brand.Card bordered="outlined" sx={{ display: 'grid', gap: 2 }}>
-                <Box>
-                    <Typography variant="h6">Set briefing scope</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                        Select the snapshot and optional filters. The report uses aggregate facts only; case-level narrative evidence is not available in this flow.
-                    </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                    <Box sx={{ minWidth: 220 }}><WeekSelect /></Box>
-                    <QueryTextFilter label="Client account" paramKey="client_account" />
-                    <QueryTextFilter label="Category" paramKey="category" />
-                    <Brand.Button onClick={handleGenerate} loading={loading} sx={REPORT_ACTION_SX}>{loading ? 'Creating briefing...' : 'Create briefing'}</Brand.Button>
-                </Box>
-            </Brand.Card>
-
-            {loading && <Typography aria-live="polite">Creating the fact-referenced operational briefing...</Typography>}
-            {error && <Brand.Card bordered="outlined" role="alert"><Typography color="error">{error}</Typography></Brand.Card>}
-
-            {reviewPacket ? <ReviewPacket packet={reviewPacket} onUpdate={setReviewPacket} /> : draft ? <BriefingDraft draft={draft} filtersApplied={filtersApplied} /> : !loading && !error && (
-                <Brand.Card bordered="outlined">
-                    <Typography variant="h6">What this produces</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                        A persisted local review packet with an executive snapshot, evidence-backed review priorities, immutable review decisions, approval counts, and gated HTML exports.
-                    </Typography>
-                </Brand.Card>
-            )}
-
-            <Divider sx={{ my: 1 }} />
-
-            {clientAccount ? (
-                <DiagnosticSummarySection clientAccount={clientAccount} asOfWeek={asOfWeek} />
-            ) : (
-                <Brand.Card bordered="outlined">
-                    <Typography variant="h6">Case diagnostics</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                        Enter a client account above to see its reviewer-validated case diagnostics: created/validated/pending counts, consolidated patterns, and one-off findings. This is a separate rollup of already-reviewed diagnostics, not part of the aggregate briefing above.
-                    </Typography>
-                </Brand.Card>
-            )}
-        </Box>
-    );
-}
-
-export default function ReportsPage() {
-    return <Suspense fallback={<Typography>Loading...</Typography>}><ReportsContent /></Suspense>;
-}
+export default function ReportsPage() { return <Suspense fallback={<Brand.StateView state="loading" title="Loading reports" />}><ReportsList /></Suspense>; }

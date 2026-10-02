@@ -12,19 +12,19 @@ const Switch = styled(MuiSwitch)(({ theme }) => ({
         padding: 0,
         margin: 0,
         transitionDuration: '300ms',
-        border: '2px solid #4B4D4F',
+        border: '2px solid', borderColor: theme.palette.brand.enterpriseDarkGray,
         '&.Mui-checked': {
             transform: 'translateX(20px)',
-            color: '#0C55B8',
-            border: '2px solid #0C55B8',
+            color: theme.palette.brand.hyperlink,
+            border: '2px solid', borderColor: theme.palette.brand.hyperlink,
             '& + .MuiSwitch-track': {
-                backgroundColor: '#FFF',
-                border: '2px solid #0C55B8',
+                backgroundColor: theme.palette.brand.white,
+                border: '2px solid', borderColor: theme.palette.brand.hyperlink,
                 opacity: 1,
             },
             '&.Mui-disabled + .MuiSwitch-track': {
                 opacity: 0.5,
-                border: '2px solid #979797',
+                border: '2px solid', borderColor: theme.palette.grey[500],
             },
             '& .MuiSwitch-thumb': {
                 backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'><circle cx='10' cy='10' r='10' fill='%230C55B8'/><path d='M8 15L3 10L4.41 8.59L8 12.17L15.59 4.58L17 6L8 15Z' fill='white'/></svg>")`,
@@ -33,7 +33,7 @@ const Switch = styled(MuiSwitch)(({ theme }) => ({
             },
         },
         '&.Mui-checked.Mui-disabled': {
-            border: '2px solid #979797',
+            border: '2px solid', borderColor: theme.palette.grey[500],
             '& .MuiSwitch-thumb': {
                 backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'><circle cx='10' cy='10' r='10' fill='%23979797'/><path d='M8 15L3 10L4.41 8.59L8 12.17L15.59 4.58L17 6L8 15Z' fill='white'/></svg>")`,
                 backgroundRepeat: 'no-repeat',
@@ -55,10 +55,10 @@ const Switch = styled(MuiSwitch)(({ theme }) => ({
         border: '2px solid transparent',
     },
     '& .MuiSwitch-track': {
-        borderRadius: 24 / 2,
-        backgroundColor: '#F2F2F2',
+        borderRadius: '12px',
+        backgroundColor: theme.palette.grey[100],
         opacity: 1,
-        border: '2px solid #4B4D4F',
+        border: '2px solid', borderColor: theme.palette.brand.enterpriseDarkGray,
         transition: theme.transitions.create(['background-color'], { duration: 500 }),
     },
 }));

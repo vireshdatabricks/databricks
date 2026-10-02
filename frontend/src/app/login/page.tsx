@@ -20,7 +20,7 @@ const Card = styled(Brand.Card)`
   flex-direction: column;
   align-items: center;
   text-align: center;
-  border: 1px solid #CBCCCD;
+  border: 1px solid ${({ theme }) => theme.palette.brand.smoke};
   border-radius: 24px;
   padding: 40px 36px;
   gap: 20px;
@@ -36,8 +36,8 @@ export default function LoginPage() {
   }, [searchParams]);
 
   const onClickLogin = async () => {
-    const settings = await getMSIDSettings();
-    idpLogin(settings);
+    await getMSIDSettings();
+    idpLogin();
   };
 
   const centerCss = { position: 'absolute' as const, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' };
@@ -54,7 +54,7 @@ export default function LoginPage() {
           ...centerCss
         }}
       >
-        <Typography variant="h5">You don&apos;t have access to this application.</Typography>
+        <Typography variant="h1" component="h1">You don&apos;t have access to this application.</Typography>
         <Typography>Please contact your administrator for access.</Typography>
       </Box>
     );

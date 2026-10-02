@@ -127,6 +127,11 @@ def resolve_as_of_week(requested: date | None) -> date:
     return requested
 
 
+def get_filter_options(as_of_week: date | None) -> dict:
+    resolved_week = resolve_as_of_week(as_of_week)
+    return _envelope(resolved_week, repository.get_filter_options(resolved_week))
+
+
 def get_summary(as_of_week: date | None, client_account: str | None, line_of_business: str | None, assignment_group: str | None) -> dict:
     resolved_week = resolve_as_of_week(as_of_week)
     case_row = repository.get_case_summary(resolved_week, client_account, line_of_business, assignment_group)

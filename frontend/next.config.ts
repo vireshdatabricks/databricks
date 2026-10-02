@@ -16,7 +16,13 @@ const nextConfig: NextConfig = {
         destination: `${basePath}/dashboard`,
         permanent: false,
         basePath: false
-      }
+      },
+      // reference/50 §5: retired routes keep their query strings. Temporary during the pilot.
+      { source: '/dashboard/overview', destination: '/dashboard', permanent: false },
+      { source: '/dashboard/trends', destination: '/dashboard/operations?tab=monthly', permanent: false },
+      // reference/45 §3.2: candidate themes live under Recurring issues.
+      { source: '/dashboard/themes', destination: '/dashboard/recurring-issues', permanent: false },
+      { source: '/dashboard/themes/:themeId', destination: '/dashboard/recurring-issues/:themeId', permanent: false }
     ];
   },
   env: {

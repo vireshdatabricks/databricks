@@ -2,28 +2,17 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Box, Menu, MenuItem } from '@mui/material';
+import { Box, Menu, MenuItem, useTheme } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { usePathname } from 'next/navigation';
 import { styled } from '@mui/material/styles';
 
 import { INavItem } from './config';
 
-const NavButton = styled('button')`
-  color: #4b4d4f;
-  font-weight: 700;
-  font-size: 14px;
-  font-family: inherit;
-  text-transform: none;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-`;
+const NavButton = styled('button')(({ theme }) => ({
+  color: theme.palette.brand.enterpriseDarkGray, fontWeight: 700, fontSize: 14, fontFamily: 'inherit', textTransform: 'none',
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: 4,
+}));
 
 interface TopNavigationProps {
   isAuthenticated: boolean;
@@ -35,6 +24,7 @@ export default function TopNavigation({ isAuthenticated, disabledPublicSlugs, it
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
   const [openKey, setOpenKey] = React.useState<string | null>(null);
   const pathname = usePathname();
+  const theme = useTheme();
   const activeSegments = pathname.split('/').filter(Boolean);
   const disabledSet = new Set(disabledPublicSlugs);
 
@@ -49,7 +39,7 @@ export default function TopNavigation({ isAuthenticated, disabledPublicSlugs, it
         item.children ? (
           <Box
             key={item.label}
-            sx={{ display: 'flex', alignItems: 'center', position: 'relative', borderBottom: `3px solid ${activeSegments.includes(item.pathToMatch) ? '#002677' : '#FFFFFF'}`, height: '100%', px: 1 }}
+            sx={{ display: 'flex', alignItems: 'center', position: 'relative', borderBottom: `3px solid ${activeSegments.includes(item.pathToMatch) ? theme.palette.brand.enterpriseDarkBlue : theme.palette.brand.white}`, height: '100%', px: 1 }}
           >
             <NavButton onClick={(e) => { setAnchorEl(e.currentTarget); setOpenKey(item.label); }}>
               {item.label}
@@ -59,7 +49,7 @@ export default function TopNavigation({ isAuthenticated, disabledPublicSlugs, it
               {item.children.map((child) => {
                 const isActive = pathname.includes(child.link);
                 return (
-                  <MenuItem key={child.label} onClick={() => setOpenKey(null)} sx={{ '&:hover': { backgroundColor: '#B8B8B8' }, fontWeight: isActive ? 700 : 400, color: isActive ? '#002677' : undefined, backgroundColor: isActive ? '#E6F0FF' : undefined, p: 0 }}>
+                  <MenuItem key={child.label} onClick={() => setOpenKey(null)} sx={{ '&:hover': { backgroundColor: 'action.hover' }, fontWeight: isActive ? 700 : 400, color: isActive ? 'brand.enterpriseDarkBlue' : undefined, backgroundColor: isActive ? 'brand.informationLight' : undefined, p: 0 }}>
                     <Link href={child.link} style={{ display: 'block', width: '100%', padding: '8px 16px', color: 'inherit', textDecoration: 'none' }}>{child.label}</Link>
                   </MenuItem>
                 );
@@ -67,8 +57,8 @@ export default function TopNavigation({ isAuthenticated, disabledPublicSlugs, it
             </Menu>
           </Box>
         ) : (
-          <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', position: 'relative', borderBottom: `3px solid ${activeSegments.includes(item.pathToMatch) ? '#002677' : '#FFFFFF'}`, height: '100%', px: 1 }}>
-            <Link href={item.link} style={{ textDecoration: 'none', color: activeSegments.includes(item.pathToMatch) ? '#002677' : '#4b4d4f', fontWeight: 600, padding: '0 12px', display: 'flex', alignItems: 'center', height: '100%' }}>{item.label}</Link>
+          <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', position: 'relative', borderBottom: `3px solid ${activeSegments.includes(item.pathToMatch) ? theme.palette.brand.enterpriseDarkBlue : theme.palette.brand.white}`, height: '100%', px: 1 }}>
+            <Link href={item.link} style={{ textDecoration: 'none', color: activeSegments.includes(item.pathToMatch) ? theme.palette.brand.enterpriseDarkBlue : theme.palette.brand.enterpriseDarkGray, fontWeight: 600, padding: '0 12px', display: 'flex', alignItems: 'center', height: '100%' }}>{item.label}</Link>
           </Box>
         )
       )}

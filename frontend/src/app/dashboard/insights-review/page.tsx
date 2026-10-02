@@ -1,11 +1,12 @@
-import AwaitingSourcePage from '../components/awaiting-source-page';
+import { redirect } from 'next/navigation';
 
-export default function InsightsReviewPage() {
-    return <AwaitingSourcePage
-        title="Insights review"
-        summary="A future workspace for business validation and action follow-up."
-        needs="Disposition rates, confidence precision, actionability, and complete evidence-traceability measures need immutable insight, review, evidence, action, and outcome records."
-        availableHref="/dashboard/reports"
-        availableLabel="Review the current Fast Facts draft"
-    />;
+export default async function InsightsReviewRedirect({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+    const params = await searchParams;
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (Array.isArray(value)) value.forEach((entry) => query.append(key, entry));
+        else if (value !== undefined) query.set(key, value);
+    });
+    const suffix = query.toString();
+    redirect(`/dashboard/reports${suffix ? `?${suffix}` : ''}`);
 }

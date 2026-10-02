@@ -1,4 +1,5 @@
 import { BASE_PATH } from './base-path';
+import { reviewerHeaders } from '../lib/api/client';
 
 export interface Envelope<T> {
     as_of_week: string;
@@ -172,6 +173,9 @@ async function getJson<T>(path: string, params: QueryParams = {}): Promise<T> {
     return response.json();
 }
 
+export interface FilterOptions { client_accounts: string[]; lines_of_business: string[]; assignment_groups: string[]; categories: string[]; }
+export const getFilterOptions = (params: { as_of_week?: string }) => getJson<Envelope<FilterOptions>>('/filter-options', params);
+
 export const getSummary = (params: {
     as_of_week?: string;
     client_account?: string;
@@ -240,144 +244,6 @@ export const getThemeCases = (themeId: string, params: { as_of_week?: string; li
 
 export const getCase = (caseNumber: string, params: { as_of_week?: string }) =>
     getJson<Envelope<CaseDetail>>(`/cases/${encodeURIComponent(caseNumber)}`, params);
-
-export type DiagnosticDisposition = 'VALIDATED' | 'REJECTED' | 'REVISED' | 'DUPLICATE' | 'ADDITIONAL_EVIDENCE_REQUIRED';
-
-export interface DiagnosticEvidence {
-    evidence_id?: string;
-    segment_id: string;
-    record_level: string;
-    task_number: string | null;
-    segment_type: string;
-    source_column: string;
-    source_file: string | null;
-    extract_week: string | null;
-    excerpt: string;
-}
-
-export interface DiagnosticReviewDecision {
-    decision_id: string;
-    reviewer_subject: string;
-    disposition: DiagnosticDisposition;
-    rationale: string;
-    revision_text: string | null;
-    created_at: string;
-}
-
-export interface CaseDiagnostic {
-    diagnostic_id: string;
-    case_number: string;
-    as_of_week: string;
-    client_account: string | null;
-    status: string;
-    observed_issue: string;
-    candidate_contributing_factor: string;
-    detection_gap: string;
-    candidate_owner: string;
-    proposed_action: string;
-    created_by_subject: string;
-    created_at: string;
-    evidence: DiagnosticEvidence[];
-    decisions: DiagnosticReviewDecision[];
-}
-
-export interface CaseDiagnosticContext {
-    case_number: string;
-    as_of_week: string;
-    client_account: string | null;
-    evidence: DiagnosticEvidence[];
-    diagnostics: CaseDiagnostic[];
-    identity_notice: string;
-}
-
-async function diagnosticJson<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${BASE_PATH}/api/v1/diagnostics${path}`, { cache: 'no-store', ...init });
-    if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new AnalyticsApiError(body?.message ?? body?.detail ?? `Request failed with status ${response.status}`, response.status);
-    }
-    return response.json();
-}
-
-export const getCaseDiagnosticContext = (caseNumber: string, params: { as_of_week?: string }) => {
-    const query = params.as_of_week ? `?as_of_week=${encodeURIComponent(params.as_of_week)}` : '';
-    return diagnosticJson<CaseDiagnosticContext>(`/cases/${encodeURIComponent(caseNumber)}${query}`);
-};
-
-export const createCaseDiagnostic = (caseNumber: string, asOfWeek: string, request: {
-    observed_issue: string;
-    candidate_contributing_factor: string;
-    detection_gap: string;
-    candidate_owner: string;
-    proposed_action: string;
-    evidence_segment_ids: string[];
-}) => diagnosticJson<CaseDiagnostic>(`/cases/${encodeURIComponent(caseNumber)}/candidates?as_of_week=${encodeURIComponent(asOfWeek)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Diagnostic-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' },
-    body: JSON.stringify(request),
-});
-
-export const reviewCaseDiagnostic = (diagnosticId: string, request: { disposition: DiagnosticDisposition; rationale?: string; revision_text?: string }) =>
-    diagnosticJson<CaseDiagnostic>(`/${encodeURIComponent(diagnosticId)}/reviews`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Diagnostic-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' },
-        body: JSON.stringify(request),
-    });
-
-export interface DiagnosticDraft {
-    case_number: string;
-    as_of_week: string;
-    observed_issue: string;
-    candidate_contributing_factor: string;
-    detection_gap: string;
-    candidate_owner: string;
-    proposed_action: string;
-    evidence_segment_ids: string[];
-    generated_by_model: string;
-    disclaimer: string;
-}
-
-export const draftCaseDiagnostic = (caseNumber: string, asOfWeek: string) =>
-    diagnosticJson<DiagnosticDraft>(`/cases/${encodeURIComponent(caseNumber)}/candidates/draft?as_of_week=${encodeURIComponent(asOfWeek)}`, {
-        method: 'POST',
-    });
-
-export interface DiagnosticReportOneOff {
-    diagnostic_id: string;
-    case_number: string;
-    observed_issue: string;
-    candidate_contributing_factor: string;
-    detection_gap: string;
-    candidate_owner: string;
-    proposed_action: string;
-}
-
-export interface DiagnosticReportPattern {
-    contributing_factor: string;
-    case_count: number;
-    case_numbers: string[];
-    candidate_owners: string[];
-    proposed_actions: string[];
-}
-
-export interface ClientDiagnosticReportSummary {
-    client_account: string;
-    as_of_week: string;
-    created: number;
-    validated: number;
-    pending: number;
-    reviewed_not_validated: number;
-    validated_one_off_diagnostics: DiagnosticReportOneOff[];
-    consolidated_patterns: DiagnosticReportPattern[];
-    identity_notice: string;
-    limitations: string[];
-}
-
-export const getClientDiagnosticReportSummary = (clientAccount: string, params: { as_of_week?: string }) => {
-    const query = new URLSearchParams({ client_account: clientAccount });
-    if (params.as_of_week) query.set('as_of_week', params.as_of_week);
-    return diagnosticJson<ClientDiagnosticReportSummary>(`/reports/summary?${query.toString()}`);
-};
 
 export const getMetadata = () => getJson<Envelope<MetadataResponse>>('/metadata');
 
@@ -488,5 +354,90 @@ async function reportJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const createSnapshotReview = (request: SnapshotReportRequest) => reportJson<ReportReviewPacket>('/snapshot-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
-export const reviewReportInsight = (reportId: string, insightId: string, request: { disposition: InsightDisposition; rationale?: string; revision_text?: string }) => reportJson<ReportReviewPacket>(`/${encodeURIComponent(reportId)}/insights/${encodeURIComponent(insightId)}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Report-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' }, body: JSON.stringify(request) });
+export const reviewReportInsight = (reportId: string, insightId: string, request: { disposition: InsightDisposition; rationale?: string; revision_text?: string }) => reportJson<ReportReviewPacket>(`/${encodeURIComponent(reportId)}/insights/${encodeURIComponent(insightId)}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...reviewerHeaders() }, body: JSON.stringify(request) });
 export const reportExportUrl = (reportId: string, kind: 'REVIEWED_HTML' | 'DRAFT_HTML') => `${BASE_PATH}/api/v1/reports/${encodeURIComponent(reportId)}/export?kind=${kind}`;
+
+// Interim workflow and recurrence metrics (reference/51 §5). Labels: DIRECT | PROXY | CANDIDATE | NOT_AVAILABLE.
+export type MetricLabel = 'DIRECT' | 'PROXY' | 'CANDIDATE' | 'NOT_AVAILABLE';
+export interface MetricDefinition {
+    metric_id: string; definition_version: number; metric_name: string; label: MetricLabel; display_name: string;
+    stands_in_for: string | null; measures_what: string; formula: string | null; time_basis: string | null;
+    threshold: Record<string, unknown>; unlock_condition: string | null; target_value: number | null;
+}
+export interface WorkflowRow extends OperationRow {
+    time_to_first_task_hours: number | null; first_task_flag: string; task_count: number; distinct_task_group_count: number;
+    handoff_count: number; excessive_handoffs: boolean; task_group_path: string | null; gap_observable: boolean;
+    gap_count: number | null; gap_total_days: number | null; gap_longest_days: number | null; gap_threshold_days: number;
+}
+export interface WorkflowSummary {
+    case_count: number; cases_with_tasks: number; first_task_normal_count: number; first_task_automatic_count: number;
+    no_task_count: number; task_before_case_count: number; first_task_median_hours: number | null; first_task_p90_hours: number | null;
+    excessive_handoff_count: number; handoff_median: number | null; gap_observable_count: number; cases_with_counted_gap: number;
+    longest_gap_median_days: number | null; gap_threshold_days: number | null;
+    first_task_bands: BreakdownItem[]; handoff_bands: BreakdownItem[]; longest_gap_bands: BreakdownItem[];
+    definitions: Record<string, MetricDefinition>;
+}
+export interface BaselineRow {
+    metric_id: string; unit: string; period: 'BASELINE' | 'CURRENT'; period_from: string; period_to: string; n: number;
+    median: number | null; p90: number | null; missing_count: number; invalid_count: number; suppressed: boolean; label: MetricLabel;
+}
+export interface Baselines { segment_type: string; segment_value: string; note: string | null; rows: BaselineRow[] }
+export type ReopenSummary =
+    | { status: 'NOT_AVAILABLE'; metric_id: string; reason: string; unlock_condition: string | null; observation_starts_after: string | null }
+    | { status: 'AVAILABLE'; metric_id: string; label: MetricLabel; prior_extract_week: string; observation_starts_after: string; closed_in_prior_extract: number; reopened_count: number; rate: number | null; by_basis: BreakdownItem[] };
+export interface RecurrenceWindow {
+    window_code: string; window_days: number; tier: 'A' | 'B' | 'ALL'; closed_index_count: number; eligible_index_count: number;
+    censored_count: number; recurring_index_count: number; rate: number | null; related_case_count: number;
+    precision: number | null; precision_adjusted_related_cases: number | null;
+}
+export interface RecurrenceSummary {
+    rule_version: string; segment_type: string; segment_value: string; windows: RecurrenceWindow[];
+    remediation: { rows: Array<{ category: string; closed_index_count: number; eligible_index_count: number; censored_count: number; recurring_index_count: number; rate: number | null }>; cases_with_preventive_action: number; closed_cases: number | null };
+    definitions: Record<string, MetricDefinition>;
+}
+export interface TierPrecision {
+    tier: string; status: 'DIRECT' | 'CANDIDATE'; precision: number | null; sampled_pairs?: number; labelled_pairs?: number;
+    same_issue?: number; different_issue?: number; unsure?: number; decided_labels?: number; min_labels?: number;
+    false_positive_rate?: number | null; reviewer_agreement?: number | null;
+}
+export interface PrecisionSummary { rule_version: string; min_labels: number; tiers: Record<'A' | 'B' | 'ALL', TierPrecision> }
+export interface RecurrencePair {
+    pair_id: string; client_account: string; index_case_number: string; related_case_number: string; match_tier: 'A' | 'B';
+    days_after_close: number; category: string; subtype: string; index_root_cause: string | null; related_root_cause: string | null;
+    index_short_description: string | null; related_short_description: string | null;
+}
+export interface LabelQueue {
+    rule_version: string; min_labels: number; progress: Record<'A' | 'B', { labelled: number; sampled: number }>;
+    pair: (Record<string, string | number | null | unknown> & { pair_id: string; match_tier: 'A' | 'B'; client_account: string; days_after_close: number; index_case_number: string; related_case_number: string; labels: Array<{ verdict: string; comment: string | null; reviewer: string; labelled_at: string }> }) | null;
+}
+export type MatchVerdict = 'SAME_ISSUE' | 'DIFFERENT_ISSUE' | 'UNSURE';
+
+type MetricFilters = { as_of_week?: string; client_account?: string; line_of_business?: string; category?: string; case_assignment_group?: string };
+const METRIC_REVIEWER = { 'X-Report-Reviewer': 'LOCAL_DEVELOPMENT_BUSINESS_REVIEWER' };
+
+async function metricRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await fetch(`${BASE_PATH}/api/v1/analytics${path}`, { cache: 'no-store', ...init });
+    if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new AnalyticsApiError(body?.detail?.message ?? body?.message ?? `Request failed with status ${response.status}`, response.status);
+    }
+    return response.json();
+}
+
+export const getWorkflowSummary = (params: MetricFilters) => getJson<Envelope<WorkflowSummary>>('/operations/workflow/summary', params);
+export const getWorkflow = (params: MetricFilters & { sort?: string; first_task_flag?: string; excessive_handoffs?: string; limit?: number; cursor?: string }) => getJson<Envelope<WorkflowRow[]>>('/operations/workflow', params);
+export const getReopens = (params: { as_of_week?: string; client_account?: string }) => getJson<Envelope<ReopenSummary>>('/operations/reopens', params);
+export function getBaselines(metricIds: string[], params: MetricFilters): Promise<Envelope<Baselines>> {
+    const query = new URLSearchParams();
+    metricIds.forEach((id) => query.append('metric_ids', id));
+    for (const [key, value] of Object.entries(params)) if (value) query.set(key, value);
+    return metricRequest('/metrics/baselines?' + query.toString());
+}
+export const getRecurrenceWindows = (params: { as_of_week?: string; client_account?: string }) => getJson<Envelope<RecurrenceSummary>>('/recurrence/windows', params);
+export const getRecurrencePairs = (params: { as_of_week?: string; client_account?: string; tier?: string; window_days?: number; limit?: number; cursor?: string }) => getJson<Envelope<RecurrencePair[]>>('/recurrence/pairs', params);
+export const getPrecision = (params: { as_of_week?: string } = {}) => getJson<Envelope<PrecisionSummary>>('/recurrence/precision', params);
+export const getLabelQueue = () => metricRequest<Envelope<LabelQueue>>('/recurrence/label-queue', { headers: METRIC_REVIEWER });
+export const labelRecurrencePair = (pairId: string, verdict: MatchVerdict, comment?: string) =>
+    metricRequest<unknown>('/recurrence/pairs/' + encodeURIComponent(pairId) + '/labels', {
+        method: 'POST', headers: { ...METRIC_REVIEWER, 'Content-Type': 'application/json' }, body: JSON.stringify({ verdict, comment: comment || undefined }),
+    });

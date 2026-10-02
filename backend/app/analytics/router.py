@@ -21,6 +21,11 @@ def get_summary(
     return service.get_summary(as_of_week, client_account, line_of_business, assignment_group)
 
 
+@router.get("/filter-options", status_code=status.HTTP_200_OK)
+def get_filter_options(as_of_week: date | None = AsOfWeekQuery):
+    return service.get_filter_options(as_of_week)
+
+
 @router.get("/case-trends", status_code=status.HTTP_200_OK)
 def get_case_trends(
     as_of_week: date | None = AsOfWeekQuery,

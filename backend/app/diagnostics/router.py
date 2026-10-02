@@ -1,18 +1,27 @@
+"""Case diagnostic review — frozen by reference/52 (2026-10-02).
+
+Report review happens only in the promptbook report workflow (/api/v1/case-reports). Write paths
+return 410 RETIRED; reads stay so existing rows remain auditable until reference/44 step 11 removes
+this package.
+"""
 from datetime import date
 
-from fastapi import APIRouter, Header, HTTPException, Path, status
+from fastapi import APIRouter, HTTPException, Path, status
 
 from app.core.config import settings
-from app.diagnostics import service, workflow
-from app.diagnostics.schemas import DiagnosticCandidateRequest, DiagnosticReviewRequest
+from app.diagnostics import service
 
 router = APIRouter()
 
+RETIRED_DETAIL = {
+    "code": "RETIRED",
+    "message": "Case diagnostic review is retired. Review case findings in the report workflow (Reports).",
+    "replacement": "/api/v1/case-reports",
+}
 
-def _actor(x_diagnostic_reviewer: str | None) -> str:
-    # No verified identity dependency exists in the local build. This label must
-    # not be interpreted as production authorization or RBAC enforcement.
-    return x_diagnostic_reviewer or "LOCAL_DEVELOPMENT_BUSINESS_REVIEWER"
+
+def _retired() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_410_GONE, detail=RETIRED_DETAIL)
 
 
 @router.get("/cases/{case_number}")
@@ -25,25 +34,16 @@ def get_client_diagnostic_report_summary(client_account: str, as_of_week: date |
     return service.get_client_diagnostic_report_summary(settings.report_workflow_db_path, client_account, as_of_week)
 
 
-@router.post("/cases/{case_number}/candidates/draft", status_code=status.HTTP_200_OK)
-def post_case_diagnostic_draft(case_number: str = Path(...), as_of_week: date | None = None):
-    return service.draft_case_diagnostic(case_number, as_of_week)
+@router.post("/cases/{case_number}/candidates/draft", status_code=status.HTTP_410_GONE)
+def post_case_diagnostic_draft(case_number: str = Path(...)):
+    raise _retired()
 
 
-@router.post("/cases/{case_number}/candidates", status_code=status.HTTP_201_CREATED)
-def post_case_diagnostic_candidate(case_number: str, request: DiagnosticCandidateRequest, as_of_week: date | None = None, x_diagnostic_reviewer: str | None = Header(default=None)):
-    try:
-        return service.create_case_diagnostic(settings.report_workflow_db_path, case_number, as_of_week, _actor(x_diagnostic_reviewer), request)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+@router.post("/cases/{case_number}/candidates", status_code=status.HTTP_410_GONE)
+def post_case_diagnostic_candidate(case_number: str = Path(...)):
+    raise _retired()
 
 
-@router.post("/{diagnostic_id}/reviews")
-def post_diagnostic_review(diagnostic_id: str, request: DiagnosticReviewRequest, x_diagnostic_reviewer: str | None = Header(default=None)):
-    rationale = request.rationale.strip()
-    if request.disposition != "VALIDATED" and not rationale:
-        raise HTTPException(status_code=422, detail="A reviewer rationale is required for this decision.")
-    diagnostic = workflow.review_diagnostic(settings.report_workflow_db_path, diagnostic_id, _actor(x_diagnostic_reviewer), request.disposition, rationale or "Approved without comment.", request.revision_text)
-    if diagnostic is None:
-        raise HTTPException(status_code=404, detail="Diagnostic candidate was not found.")
-    return diagnostic
+@router.post("/{diagnostic_id}/reviews", status_code=status.HTTP_410_GONE)
+def post_diagnostic_review(diagnostic_id: str):
+    raise _retired()

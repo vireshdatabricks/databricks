@@ -17,6 +17,7 @@ TASK_TRENDS = "gold_task_trend_monthly"
 THEMES = "gold_theme_candidate"
 THEME_LINKS = "gold_theme_case_link"
 NARRATIVE_SEGMENTS = "silver_case_narrative_segments"
+PUBLICATION_REGISTRY = "gold_publication_registry"
 OPERATIONS_TABLES = {
     "workload": "gold_case_aging_workload",
     "date_risk": "gold_due_target_risk",
@@ -44,7 +45,23 @@ def _where(filters: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 def get_available_case_weeks() -> list[date]:
-    rows = run_query(f"SELECT DISTINCT as_of_extract_week FROM {_table(CASE_FACT)} ORDER BY as_of_extract_week DESC")
+    if not settings.publication_gate_enabled:
+        rows = run_query(f"SELECT DISTINCT as_of_extract_week FROM {_table(CASE_FACT)} ORDER BY as_of_extract_week DESC")
+        return [row["as_of_extract_week"] for row in rows]
+    # Gold tables are replaced one at a time, so a week is served only when its latest
+    # publication attempt is READY; a BUILDING or FAILED latest attempt hides the week.
+    rows = run_query(f"""
+        WITH latest_attempt AS (
+            SELECT extract_week, status,
+                   ROW_NUMBER() OVER (PARTITION BY extract_week ORDER BY started_at DESC) AS attempt_rank
+            FROM {_table(PUBLICATION_REGISTRY)}
+        )
+        SELECT DISTINCT f.as_of_extract_week
+        FROM {_table(CASE_FACT)} f
+        JOIN latest_attempt r
+          ON r.extract_week = f.as_of_extract_week AND r.attempt_rank = 1 AND r.status = 'READY'
+        ORDER BY f.as_of_extract_week DESC
+    """)
     return [row["as_of_extract_week"] for row in rows]
 
 
@@ -432,3 +449,26 @@ def get_operation_summary(operation: str, filters: dict[str, Any]) -> dict:
         return {**totals, "quality_status_counts": run_query(status_query, params)}
 
     raise ValueError(f"Unsupported operation summary: {operation}")
+
+
+FILTER_OPTION_COLUMNS = {
+    "client_accounts": "client_account",
+    "lines_of_business": "line_of_business",
+    "assignment_groups": "case_assignment_group",
+    "categories": "category",
+}
+
+
+def get_filter_options(as_of_week: date) -> dict[str, list[str]]:
+    """Distinct case dimension values for one published week, in one query (context bar options)."""
+    parts = [
+        f"SELECT '{key}' AS dim, {column} AS value FROM {_table(CASE_FACT)} "
+        f"WHERE as_of_extract_week = :as_of_week AND {column} IS NOT NULL AND trim({column}) <> '' GROUP BY {column}"
+        for key, column in FILTER_OPTION_COLUMNS.items()
+    ]
+    rows = run_query(" UNION ALL ".join(parts), {"as_of_week": as_of_week})
+    result: dict[str, list[str]] = {key: [] for key in FILTER_OPTION_COLUMNS}
+    for row in rows:
+        if row["value"] is not None and str(row["value"]).strip():
+            result[row["dim"]].append(str(row["value"]).strip())
+    return {key: sorted(set(values), key=lambda v: (v.casefold(), v)) for key, values in result.items()}

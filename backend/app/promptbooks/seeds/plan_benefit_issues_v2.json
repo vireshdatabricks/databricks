@@ -1,0 +1,196 @@
+{
+  "meta": {
+    "promptbook_id": "PLAN_BENEFIT_ISSUES",
+    "name": "Plan benefit design, setup, and testing issues",
+    "owner": "business owner (to be named)",
+    "source_document": "Sanford Issue Case Analysis- SN Trends-POC 1.2- Pharos Promptbook"
+  },
+  "focus": "Recurring plan benefit design, setup, and testing issues: what failed, why it was not caught, which part of the organisation most likely contributed, and which systemic actions would prevent recurrence.",
+  "scope": {
+    "instruction": "Decide whether the case is relevant to plan benefit design, setup, and testing analysis. Classify even when evidence is incomplete and lower confidence instead of refusing.",
+    "in_scope": [
+      "Plan benefit design or setup (configuration, coding, build, renewal, amendment)",
+      "Cost-sharing logic (copays, coinsurance, deductibles, tiers)",
+      "Benefit rules (PA, step therapy, quantity limits)",
+      "Formulary or drug list configuration",
+      "State or regulatory benefit mandates",
+      "Testing and validation of benefit design (BAT, UAT, pre-go-live validation)",
+      "Post-go-live issues that directly reveal a benefit design, setup, or testing failure"
+    ],
+    "out_of_scope": [
+      "Eligibility issues",
+      "Claims operations unless the claim issue directly reveals a benefit configuration error",
+      "Customer service or inquiry-only cases",
+      "Network, pricing, reimbursement, or finance issues not tied to benefit design",
+      "Workflow, intake, routing, or operational delays",
+      "Data feeds, file transfers, reporting issues",
+      "External vendor or pharmacy behavior not caused by benefit configuration"
+    ]
+  },
+  "lens": [
+    {
+      "name": "category",
+      "label": "Category",
+      "definition": "The benefit area the failure belongs to. Pick up to two; use Unclassified when none fits.",
+      "values": [
+        "Cost-Sharing Configuration",
+        "State Mandates",
+        "Drug Coverage",
+        "Prior Authorization",
+        "Formulary Management",
+        "Testing Gaps",
+        "Unclassified"
+      ],
+      "max_values": 2,
+      "fallback": "Unclassified"
+    },
+    {
+      "name": "causal_class",
+      "label": "Causal class",
+      "definition": "Whether the failure most likely came from misunderstanding the client's intent, a coding or configuration error, or a testing and validation failure. Several can apply; use Indeterminate when the evidence cannot distinguish.",
+      "values": [
+        "Client Intent Misunderstanding",
+        "Coding / Configuration Error",
+        "Testing and Validation Failure",
+        "Indeterminate"
+      ],
+      "max_values": 3,
+      "fallback": "Indeterminate"
+    },
+    {
+      "name": "owner",
+      "label": "Owner",
+      "definition": "Which part of the organisation most likely contributed: people (knowledge, judgement, communication), process (missing or skipped steps), or technology (system limits or defects). Use Indeterminate when the evidence does not say.",
+      "values": [
+        "People",
+        "Process",
+        "Technology",
+        "Indeterminate"
+      ],
+      "max_values": 3,
+      "fallback": "Indeterminate"
+    }
+  ],
+  "grouping": {
+    "instruction": "Group the cases into recurring themes. Every in-scope case must belong to at least one theme; a case may belong to more than one only when it clearly shows two distinct failure patterns. Prefer themes that share a failure mechanism over themes that only share a category.",
+    "group_by": [
+      "category",
+      "owner"
+    ],
+    "attribution_dimension": "causal_class",
+    "dominant_joiners": {
+      "category": " / ",
+      "owner": " + ",
+      "causal_class": " / "
+    },
+    "cross_client": true
+  },
+  "report_template": {
+    "title": "Plan Benefit Design, Setup, and Testing Issue Analysis",
+    "sections": [
+      {
+        "id": "executive_wrapper",
+        "kind": "facts_wrapper",
+        "heading": "1. Executive wrapper",
+        "text": "Scope: plan benefit design, setup, and testing issues for {client}. Volume: {selected_count} cases opened {date_from} to {date_to} were reviewed; {in_scope_count} were classified in scope and analysed. ServiceNow data through {data_through}. {theme_count} themes identified."
+      },
+      {
+        "id": "executive_summary",
+        "kind": "narrative",
+        "heading": "Executive summary",
+        "instruction": "Write two short paragraphs for an executive reader: the main recurring themes and the systemic actions that matter most. Describe causes as likely contributing factors. Use only the theme data provided."
+      },
+      {
+        "id": "theme_table",
+        "kind": "theme_table",
+        "heading": "2. Theme summary",
+        "text": "Grouped by category, then owner. Frequency is the share of in-scope cases."
+      },
+      {
+        "id": "introduction",
+        "kind": "text",
+        "heading": "3. Introduction",
+        "text": "This analysis reviewed {selected_count} {client} cases and classified {in_scope_count} as plan benefit design, setup, or testing issues. Each in-scope case was analysed for what happened, what failed, where, how it was detected, what likely caused it, and what would prevent it, using ServiceNow case, task, and subtask text and linked attachments. Counts and timing are computed from the case records; causes and actions are candidate findings for review."
+      },
+      {
+        "id": "themes",
+        "kind": "themes",
+        "heading": "4. Themes",
+        "elements": [
+          "problem_statement",
+          "frequency",
+          "attribution",
+          "supporting_cases",
+          "systemic_action",
+          "recurrence"
+        ]
+      },
+      {
+        "id": "operational_context",
+        "kind": "evidence_query",
+        "heading": "5. Operational context (evidence queries)",
+        "text": "Answers below come from read-only queries over the ServiceNow evidence, generated by Genie and checked before use. Each shows its question and SQL.",
+        "questions": [
+          {
+            "id": "tasks_by_group",
+            "label": "Task volume by assignment group",
+            "question": "For client_account {client_sql}, considering only cases opened between {date_from} and {date_to}, how many tasks did each task assignment group handle? Return task_assignment_group and task_count, highest first."
+          },
+          {
+            "id": "attachments_by_case",
+            "label": "Attachment coverage by case",
+            "question": "For client_account {client_sql}, for cases opened between {date_from} and {date_to}, list each case_number with the number of validated attachment files and how many of them have processing_status EXTRACTED. Include cases with no attachments."
+          }
+        ]
+      },
+      {
+        "id": "limitations",
+        "kind": "limitations",
+        "heading": "6. Limitations"
+      },
+      {
+        "id": "scope_appendix",
+        "kind": "scope_appendix",
+        "heading": "Appendix A. Scope decisions to confirm",
+        "text": "Cases classified as out of scope (model classification; excluded from the themes)."
+      },
+      {
+        "id": "completion",
+        "kind": "text",
+        "heading": "Completion statement",
+        "text": "Theme consolidation complete: {theme_count} themes from {in_scope_count} in-scope of {selected_count} selected cases. All findings remain candidates pending reviewer validation."
+      }
+    ]
+  },
+  "style": {
+    "theme_name_words": [
+      8,
+      10
+    ],
+    "action_words": [
+      20,
+      25
+    ],
+    "banned_terms": [
+      "BOM option",
+      "GPI-level",
+      "SOT/BID cross-referencing",
+      "tier-by-pharmacy-type matrix"
+    ],
+    "preferred_phrases": [
+      "update benefit setup checklist",
+      "verify drug lists",
+      "compare client documents before build",
+      "add validation grid"
+    ],
+    "tone": "Plain, executive-friendly language. Describe causes as likely contributing factors, not established facts."
+  },
+  "thresholds": {
+    "min_theme_support": 3,
+    "same_client_repeat_min_cases": 2,
+    "same_client_repeat_window_days": 90,
+    "cross_client_min_clients": 2,
+    "confidence_high_share": 0.75,
+    "confidence_medium_share": 0.5
+  }
+}

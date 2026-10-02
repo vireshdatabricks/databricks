@@ -1,6 +1,8 @@
 # ---- Backend (Python / FastAPI) ----
 backend/.venv/
 backend/data/*.sqlite3
+# Exported case reports contain confidential case text (reference/44 §10).
+backend/data/exports/
 venv/
 __pycache__/
 *.py[cod]

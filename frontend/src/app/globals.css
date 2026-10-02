@@ -7,10 +7,23 @@ body {
   margin: 0;
   padding: 0;
   font-family: var(--font-enterprise-sans), Arial, sans-serif;
-  background: #ffffff;
+  background: white;
 }
 
 :focus-visible {
-  outline: 2px solid #0c55b8;
+  outline: 2px solid Highlight;
   outline-offset: 2px;
 }
+
+/* reference/48 S19: one link style for text links — hyperlink blue (#0C55B8, theme brand.hyperlink),
+   no visited purple, underline that thickens on hover, visible focus ring.
+   :where() keeps specificity at zero so components that style their own anchors (buttons rendered
+   as links, cards, navigation) always win, and MUI buttons are excluded outright. */
+:where(a:not(.MuiButtonBase-root)) {
+  color: #0C55B8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+:where(a:not(.MuiButtonBase-root):visited) { color: #0C55B8; }
+:where(a:not(.MuiButtonBase-root):hover) { text-decoration-thickness: 2px; }
+:where(a:not(.MuiButtonBase-root):focus-visible) { outline: 2px solid #0C55B8; outline-offset: 2px; border-radius: 2px; }

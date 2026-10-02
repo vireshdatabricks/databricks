@@ -57,6 +57,16 @@ class ServiceUnavailableError(AppError):
     message = "Upstream data service unavailable"
 
 
+class QueryFailedError(ServiceUnavailableError):
+    """The warehouse was reachable but rejected or failed the query (e.g. an unknown column).
+
+    Subclasses ServiceUnavailableError so existing callers keep their 503 behaviour; callers that
+    need to tell a broken query from an unreachable service catch this first.
+    """
+
+    message = "The analytics query failed"
+
+
 def _error_body(status_code: int, message: str, path: str) -> dict:
     return {"status_code": status_code, "message": message, "path": path}
 
@@ -83,6 +93,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         else:
             logger.warning("HTTP error handling request", extra=context)
 
+        # Structured details ({code, message, errors, ...}) are passed through as `detail` so clients
+        # can read field errors and codes; `message` stays a plain sentence.
+        if isinstance(exc.detail, dict):
+            message = str(exc.detail.get("message") or "Request failed.")
+            body = _error_body(exc.status_code, message, request.url.path)
+            body["detail"] = exc.detail
+            return JSONResponse(status_code=exc.status_code, content=body)
         message = "The requested resource was not found." if exc.status_code == 404 else str(exc.detail)
         return JSONResponse(status_code=exc.status_code, content=_error_body(exc.status_code, message, request.url.path))
 

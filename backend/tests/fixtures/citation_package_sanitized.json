@@ -1,0 +1,68 @@
+{
+  "package_version": 1,
+  "run": {
+    "analysis_run_id": "RUN-SAMPLE-1",
+    "clients": ["CLIENT-SAMPLE"],
+    "as_of_extract_week": "2026-09-21"
+  },
+  "promptbook": {"promptbook_id": "BOOK-SAMPLE", "version": 1, "title": "Sanitized report"},
+  "sections": [
+    {"id": "themes", "kind": "themes", "heading": "Themes"},
+    {"id": "scope", "kind": "scope_appendix", "heading": "Scope"}
+  ],
+  "themes": [
+    {
+      "theme_id": "THEME-SAMPLE",
+      "theme_name_plain": "Sanitized theme",
+      "problem_statement_plain": "Sanitized problem statement",
+      "key_systemic_action_plain": "Sanitized action",
+      "case_numbers": ["CASE-SAMPLE-1"]
+    }
+  ],
+  "cases": {
+    "CASE-SAMPLE-1": {
+      "case_number": "CASE-SAMPLE-1",
+      "lens": {
+        "in_scope": true,
+        "citations": [
+          {
+            "source_type": "FINDING_FIELD",
+            "record_number": "CASE-SAMPLE-1",
+            "field_name": "what_happened",
+            "excerpt": "SANITIZED QUOTE A"
+          }
+        ]
+      },
+      "finding": {
+        "what_happened": "Sanitized finding text",
+        "citations": [
+          {
+            "source_type": "CASE_FIELD",
+            "record_number": "CASE-SAMPLE-1",
+            "field_name": "case_description",
+            "section": "what_happened",
+            "excerpt": "SANITIZED QUOTE B"
+          },
+          {
+            "source_type": "CHILD_SUMMARY",
+            "record_number": "TASK-SAMPLE-1",
+            "field_name": "task_summary",
+            "child_summary_id": "SUMMARY-SAMPLE-1",
+            "section": "what_happened",
+            "excerpt": "SANITIZED SUMMARY QUOTE",
+            "attachment_citations": [
+              {
+                "source_type": "ATTACHMENT_CHUNK",
+                "record_number": "TASK-SAMPLE-1",
+                "attachment_name": "attachment-sample.xlsx",
+                "page_or_sheet": "Sheet-Sample",
+                "chunk_id": "CHUNK-SAMPLE-1",
+                "excerpt": "SANITIZED ATTACHMENT QUOTE"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
